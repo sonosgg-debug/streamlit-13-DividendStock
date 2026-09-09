@@ -50,7 +50,10 @@ except Exception as e:
     print(f"pykrx 로드 실패: {e}")
 
 import yfinance as yf
-import FinanceDataReader as fdr
+try:
+    import FinanceDataReader as fdr
+except Exception:
+    fdr = None
 
 # 분기배당 실시하는 대표 국내 기업 목록
 QUARTERLY_KR_STOCKS = {
@@ -159,13 +162,31 @@ def build_us_market_sp500():
     S&P 500 종목 중 배당수익률 기준 상위 100개 종목 수집
     """
     print("[S&P500] 종목 리스트 수집 중...")
-    sp500_listing = fdr.StockListing('S&P500')
     symbols_data = []
-    for _, row in sp500_listing.iterrows():
-        sym = str(row['Symbol']).replace('.', '-')
-        name = str(row.get('Name', sym))
-        sector = str(row.get('Sector', '기타'))
-        symbols_data.append((sym, name, sector))
+    if fdr is not None:
+        try:
+            sp500_listing = fdr.StockListing('S&P500')
+            for _, row in sp500_listing.iterrows():
+                sym = str(row['Symbol']).replace('.', '-')
+                name = str(row.get('Name', sym))
+                sector = str(row.get('Sector', '기타'))
+                symbols_data.append((sym, name, sector))
+        except Exception:
+            pass
+
+    if not symbols_data:
+        try:
+            import requests, io
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resp = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=headers, timeout=10)
+            df_wiki = pd.read_html(io.StringIO(resp.text))[0]
+            for _, row in df_wiki.iterrows():
+                sym = str(row['Symbol']).replace('.', '-')
+                name = str(row.get('Security', sym))
+                sector = str(row.get('GICS Sector', '기타'))
+                symbols_data.append((sym, name, sector))
+        except Exception as e:
+            print(f"Wikipedia S&P500 로드 실패: {e}")
 
     print(f"[S&P500] 총 {len(symbols_data)}개 종목 yfinance 병렬 데이터 수집 시작...")
     records = []

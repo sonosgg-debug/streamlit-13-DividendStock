@@ -94,13 +94,39 @@ MASTER_FILE = os.path.join(CURRENT_DIR, "dividend_stocks_master.csv")
 
 
 def get_latest_business_date():
-    """최근 영업일 문자열 YYYY-MM-DD 반환"""
-    now = datetime.datetime.now()
-    for i in range(10):
-        d = now - datetime.timedelta(days=i)
+    """
+    가장 최근 거래 완료된 영업일 YYYY-MM-DD 반환.
+    한국 장 마감 시간(15:30) 및 일별 정산(16:00)을 고려:
+    - 평일 16:00 이전에는 아직 당일 종가가 확정되지 않았으므로 '전일(또는 직전 평일)'을 기준일로 설정
+    - 평일 16:00 이후에는 '당일'을 최신 영업일로 설정
+    - 주말(토, 일)에는 '직전 금요일'을 최신 영업일로 설정
+    """
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    now_kst = now_utc + datetime.timedelta(hours=9)
+
+    # 평일 16:00 이전이거나 주말이면 어제(또는 직전 평일)부터 탐색
+    start_offset = 0 if (now_kst.weekday() < 5 and now_kst.hour >= 16) else 1
+
+    kst_bday = None
+    for i in range(start_offset, start_offset + 10):
+        d = now_kst - datetime.timedelta(days=i)
         if d.weekday() < 5:
-            return d.strftime("%Y-%m-%d")
-    return now.strftime("%Y-%m-%d")
+            kst_bday = d.strftime('%Y-%m-%d')
+            break
+
+    if not kst_bday:
+        kst_bday = (now_kst - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+
+    if HAS_PYKRX and stock:
+        try:
+            clean_d = kst_bday.replace('-', '')
+            krx_day = stock.get_nearest_business_day_in_a_week(date=clean_d)
+            if krx_day and len(krx_day) == 8 and krx_day <= clean_d:
+                return f"{krx_day[:4]}-{krx_day[4:6]}-{krx_day[6:]}"
+        except Exception:
+            pass
+
+    return kst_bday
 
 
 def load_market_data(force_refresh=False):
@@ -110,9 +136,9 @@ def load_market_data(force_refresh=False):
     - force_refresh=True일 경우 build_master_data를 호출하여 캐시 갱신.
     반환값: (df_all, target_date_str)
     """
-    today_str = datetime.datetime.now().strftime("%Y%m%d")
-    cache_path = os.path.join(CACHE_DIR, f"dividend_summary_{today_str}.csv")
     date_display = get_latest_business_date()
+    today_clean = date_display.replace('-', '')
+    cache_path = os.path.join(CACHE_DIR, f"dividend_summary_{today_clean}.csv")
 
     # 1. 강제 갱신 요청 시
     if force_refresh:
@@ -153,17 +179,44 @@ def load_market_data(force_refresh=False):
     return pd.DataFrame(), date_display
 
 
-def load_stock_history_and_dividends(ticker, market, months=12):
+def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None, latest_price=None):
     """
     선택된 종목의 시계열 주가(일별 종가, 이동평균선) 및 역대 배당금 지급 내역(연도별 DPS) 수집.
+    - 1차: 한국 주식은 pykrx 실시간 OHLCV 우선 조회 -> 2차: yfinance 글로벌 폴백
+    - 3차: 타임존 완전 제거로 Plotly UTC 변환 시 하루 전으로 표시되는 버그 원천 차단
+    - 4차: 테이블의 최신 검증 종가(latest_price, latest_date)와 동기화하여 시계열 데이터 누락/지연 원천 방지
     반환값:
       df_price: DataFrame (Index: Date, '종가', 'MA20', 'MA60')
       df_div_annual: DataFrame ('연도', 'DPS', '배당성장률(%)')
     """
-    if not HAS_YF or not yf:
-        return pd.DataFrame(), pd.DataFrame()
+    end_date_str = get_latest_business_date()
+    if latest_date:
+        clean_date = str(latest_date).replace('-', '').strip()
+        if len(clean_date) == 8:
+            clean_end = end_date_str.replace('-', '')
+            if clean_date > clean_end:
+                end_date_str = f"{clean_date[:4]}-{clean_date[4:6]}-{clean_date[6:]}"
 
-    # 티커 형식 변환
+    start_dt = datetime.datetime.strptime(end_date_str, "%Y-%m-%d") - datetime.timedelta(days=int(months * 30.5))
+    start_date_str = start_dt.strftime("%Y-%m-%d")
+
+    df_price = pd.DataFrame()
+    df_div_annual = pd.DataFrame()
+
+    # 1. 한국 주식인 경우 pykrx OHLCV 우선 시도
+    if market in ['KOSPI', 'KOSDAQ'] and HAS_PYKRX and stock:
+        try:
+            s_d = start_date_str.replace('-', '')
+            e_d = end_date_str.replace('-', '')
+            df_krx = stock.get_market_ohlcv_by_date(s_d, e_d, str(ticker).zfill(6))
+            if not df_krx.empty and '종가' in df_krx.columns and len(df_krx) >= 5:
+                df_price = pd.DataFrame(index=df_krx.index)
+                df_price['종가'] = df_krx['종가'].astype(float).values
+        except Exception as e:
+            print(f"pykrx OHLCV 수집 실패 (yfinance 폴백 가동): {e}")
+
+    # 2. yfinance 시도 (미국 주식 및 한국 주식 폴백)
+    yf_symbol = None
     if market == 'KOSPI':
         yf_symbol = f"{str(ticker).zfill(6)}.KS"
     elif market == 'KOSDAQ':
@@ -171,56 +224,73 @@ def load_stock_history_and_dividends(ticker, market, months=12):
     else:
         yf_symbol = str(ticker).replace('.', '-')
 
-    try:
-        t = yf.Ticker(yf_symbol)
-        
-        # 1. 시계열 주가 로드
-        period_str = f"{months}mo" if months <= 36 else "5y"
-        hist = t.history(period=period_str)
-        
-        if hist.empty or 'Close' not in hist.columns:
-            df_price = pd.DataFrame()
-        else:
-            df_price = pd.DataFrame(index=hist.index)
-            df_price['종가'] = hist['Close'].values
-            df_price['MA20'] = df_price['종가'].rolling(window=20, min_periods=1).mean()
-            df_price['MA60'] = df_price['종가'].rolling(window=60, min_periods=1).mean()
-            df_price.index = pd.to_datetime(df_price.index)
+    if HAS_YF and yf and yf_symbol:
+        try:
+            t = yf.Ticker(yf_symbol)
 
-        # 2. 배당 이력 로드 및 연도별 집계
-        divs = t.dividends
-        if divs.empty:
-            df_div_annual = pd.DataFrame()
-        else:
-            divs.index = pd.to_datetime(divs.index)
-            # 최근 7개년 집계
-            divs_annual = divs.groupby(divs.index.year).sum()
-            current_year = datetime.datetime.now().year
-            # 최근 연도 필터링
-            divs_annual = divs_annual[divs_annual.index >= (current_year - 6)]
-            
-            df_div_annual = pd.DataFrame({
-                '연도': divs_annual.index.astype(str),
-                'DPS': divs_annual.values
-            })
-            
-            # 배당 성장률 계산
-            growth_rates = [np.nan]
-            for i in range(1, len(df_div_annual)):
-                prev = df_div_annual.loc[i - 1, 'DPS']
-                curr = df_div_annual.loc[i, 'DPS']
-                if prev > 0:
-                    rate = round(((curr - prev) / prev) * 100, 2)
-                else:
-                    rate = np.nan
-                growth_rates.append(rate)
-            df_div_annual['배당성장률(%)'] = growth_rates
+            # 주가 데이터가 아직 없으면 yfinance에서 로드
+            if df_price.empty:
+                period_str = f"{months}mo" if months <= 36 else "5y"
+                hist = t.history(period=period_str)
+                if not hist.empty and 'Close' in hist.columns:
+                    df_price = pd.DataFrame(index=hist.index)
+                    df_price['종가'] = hist['Close'].values
 
-        return df_price, df_div_annual
+            # 배당금 이력 로드
+            divs = t.dividends
+            if not divs.empty:
+                if hasattr(divs.index, 'tz') and divs.index.tz is not None:
+                    divs.index = divs.index.tz_localize(None)
+                divs.index = pd.to_datetime(divs.index)
+                divs_annual = divs.groupby(divs.index.year).sum()
+                current_year = datetime.datetime.now().year
+                divs_annual = divs_annual[divs_annual.index >= (current_year - 6)]
+                
+                df_div_annual = pd.DataFrame({
+                    '연도': divs_annual.index.astype(str),
+                    'DPS': divs_annual.values
+                })
+                growth_rates = [np.nan]
+                for i in range(1, len(df_div_annual)):
+                    prev = df_div_annual.loc[i - 1, 'DPS']
+                    curr = df_div_annual.loc[i, 'DPS']
+                    if prev > 0:
+                        rate = round(((curr - prev) / prev) * 100, 2)
+                    else:
+                        rate = np.nan
+                    growth_rates.append(rate)
+                df_div_annual['배당성장률(%)'] = growth_rates
+        except Exception as e:
+            print(f"{yf_symbol} yfinance 로드 실패: {e}")
 
-    except Exception as e:
-        print(f"{yf_symbol} 시계열/배당 데이터 로드 실패: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+    if df_price.empty:
+        return pd.DataFrame(), df_div_annual
+
+    # 3. 타임존 제거 (Asia/Seoul 등의 타임존이 있으면 Plotly에서 UTC 변환 시 날짜가 하루 전으로 표시되는 현상 원천 방지)
+    if hasattr(df_price.index, 'tz') and df_price.index.tz is not None:
+        df_price.index = df_price.index.tz_localize(None)
+    df_price.index = pd.to_datetime(df_price.index)
+
+    # 4. 테이블의 최신 검증 종가 데이터와 시계열 동기화
+    if latest_date and latest_price is not None:
+        try:
+            p_val = float(latest_price)
+            if p_val > 0:
+                t_dt = pd.to_datetime(str(latest_date).replace('-', '').strip())
+                max_dt = df_price.index.max()
+                if t_dt > max_dt:
+                    new_row = pd.DataFrame({"종가": [p_val]}, index=[t_dt])
+                    df_price = pd.concat([df_price, new_row])
+                elif t_dt == max_dt:
+                    df_price.loc[max_dt, "종가"] = p_val
+        except Exception as ex_sync:
+            print(f"최신 종가 동기화 예외 무시: {ex_sync}")
+
+    # 5. 이동평균선 재계산
+    df_price['MA20'] = df_price['종가'].rolling(window=20, min_periods=1).mean()
+    df_price['MA60'] = df_price['종가'].rolling(window=60, min_periods=1).mean()
+
+    return df_price, df_div_annual
 
 
 def create_excel_download(df_export, market_name):

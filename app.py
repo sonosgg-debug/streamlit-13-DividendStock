@@ -196,6 +196,17 @@ def get_cached_market_data(force_refresh=False):
     return data_loader.load_market_data(force_refresh=force_refresh)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_stock_history_and_dividends(ticker, market, months=12, latest_date=None, latest_price=None, force_refresh=False):
+    return data_loader.load_stock_history_and_dividends(
+        ticker,
+        market,
+        months=months,
+        latest_date=latest_date,
+        latest_price=latest_price
+    )
+
+
 # ==========================================
 # 4. 세션 상태 초기화
 # ==========================================
@@ -556,8 +567,13 @@ with st.container(border=True):
 
 # 시계열 주가 및 배당 이력 로드
 with st.spinner(f"{chosen_stock_name} 시계열 주가 및 배당 이력을 불러오는 중..."):
-    df_price_hist, df_div_annual = data_loader.load_stock_history_and_dividends(
-        chosen_ticker, chosen_market, months=chosen_months
+    df_price_hist, df_div_annual = get_cached_stock_history_and_dividends(
+        chosen_ticker,
+        chosen_market,
+        months=chosen_months,
+        latest_date=target_date,
+        latest_price=target_stock_row["현재가"],
+        force_refresh=force_refresh
     )
 
 # 2x2 차트 레이아웃

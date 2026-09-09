@@ -273,7 +273,7 @@ def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None
         try:
             if hasattr(df_price.index, 'tz') and df_price.index.tz is not None:
                 df_price.index = df_price.index.tz_localize(None)
-            df_price.index = pd.to_datetime(df_price.index)
+            df_price.index = pd.to_datetime(df_price.index.strftime('%Y-%m-%d'))
         except Exception:
             pass
 
@@ -296,6 +296,9 @@ def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None
                             df_price.loc[max_dt, "종가"] = p_val
             except Exception as ex_sync:
                 print(f"최신 종가 동기화 예외 무시: {ex_sync}")
+
+        # 중복 인덱스 제거 및 정렬
+        df_price = df_price[~df_price.index.duplicated(keep='last')].sort_index()
 
         # 5. 이동평균선 재계산
         df_price['MA20'] = df_price['종가'].rolling(window=20, min_periods=1).mean()

@@ -348,7 +348,7 @@ st.markdown(
 # 메타 정보 표시
 st.markdown(
     f"<div style='font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px;'>"
-    f"기준일: <span style='color: #38bdf8; font-weight: 600;'>{target_date}</span> &nbsp;|&nbsp; "
+    f"기준일: <span style='color: #38bdf8; font-weight: 600;'>{target_date}</span> (전일 종가 기준) &nbsp;|&nbsp; "
     f"선택 시장: <span style='color: #f8fafc; font-weight: 700;'>{active_market}</span> &nbsp;|&nbsp; "
     f"표시 통화: <span style='color: #34d399; font-weight: 600;'>{'원화(KRW, ₩)' if is_korean else '달러(USD, $)'}</span> &nbsp;|&nbsp; "
     f"데이터 출처: <span style='color: #cbd5e1;'>{'KRX 정보데이터시스템' if is_korean else 'S&P Dow Jones / Yahoo Finance'}</span>"
@@ -589,26 +589,32 @@ col_ch1, col_ch2 = st.columns([6, 6])
 with col_ch1:
     fig1 = go.Figure()
     if not df_price_hist.empty:
+        # 날짜 문자열 변환 (Plotly D3의 UTC 시차 계산으로 전일(Sep 8)로 밀려 표시되는 현상 원천 방지)
+        date_strs = [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d)[:10] for d in df_price_hist.index]
+
         fig1.add_trace(go.Scatter(
-            x=df_price_hist.index,
+            x=date_strs,
             y=df_price_hist['종가'],
             mode='lines',
             name="주가 (종가)",
-            line=dict(color='#38bdf8', width=2)
+            line=dict(color='#38bdf8', width=2),
+            hovertemplate=f"%{{x}}<br>종가: %{{y:,.0f}}{currency_unit}<extra></extra>" if is_korean else f"%{{x}}<br>종가: $%{{y:,.2f}}<extra></extra>"
         ))
         fig1.add_trace(go.Scatter(
-            x=df_price_hist.index,
+            x=date_strs,
             y=df_price_hist['MA20'],
             mode='lines',
             name="20일 이동평균",
-            line=dict(color='#f59e0b', width=1.5, dash='dot')
+            line=dict(color='#f59e0b', width=1.5, dash='dot'),
+            hovertemplate=f"%{{x}}<br>20일 이평: %{{y:,.0f}}{currency_unit}<extra></extra>" if is_korean else f"%{{x}}<br>20일 이평: $%{{y:,.2f}}<extra></extra>"
         ))
         fig1.add_trace(go.Scatter(
-            x=df_price_hist.index,
+            x=date_strs,
             y=df_price_hist['MA60'],
             mode='lines',
             name="60일 이동평균",
-            line=dict(color='#a855f7', width=1.5, dash='dash')
+            line=dict(color='#a855f7', width=1.5, dash='dash'),
+            hovertemplate=f"%{{x}}<br>60일 이평: %{{y:,.0f}}{currency_unit}<extra></extra>" if is_korean else f"%{{x}}<br>60일 이평: $%{{y:,.2f}}<extra></extra>"
         ))
         y_label = f"주가 ({currency_unit})"
     else:
@@ -632,7 +638,12 @@ with col_ch1:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=40, r=20, t=50, b=40),
         yaxis=dict(title=y_label, gridcolor="#334155"),
-        xaxis=dict(gridcolor="#334155")
+        xaxis=dict(
+            gridcolor="#334155",
+            type="date",
+            tickformat="%Y-%m-%d",
+            hoverformat="%Y-%m-%d"
+        )
     )
     st.plotly_chart(fig1, use_container_width=True)
 

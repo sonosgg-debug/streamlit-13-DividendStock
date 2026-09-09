@@ -197,14 +197,18 @@ def get_cached_market_data(force_refresh=False):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_cached_stock_history_and_dividends(ticker, market, months=12, latest_date=None, latest_price=None, force_refresh=False):
-    return data_loader.load_stock_history_and_dividends(
-        ticker,
-        market,
-        months=months,
-        latest_date=latest_date,
-        latest_price=latest_price
-    )
+def get_cached_stock_history_and_dividends(ticker, market, months=12, latest_date=None, latest_price=None, force_refresh=False, *args, **kwargs):
+    try:
+        return data_loader.load_stock_history_and_dividends(
+            ticker,
+            market,
+            months=months,
+            latest_date=latest_date,
+            latest_price=latest_price
+        )
+    except Exception as e:
+        print(f"get_cached_stock_history_and_dividends 캐시 로드 예외: {e}")
+        return pd.DataFrame(), pd.DataFrame()
 
 
 # ==========================================

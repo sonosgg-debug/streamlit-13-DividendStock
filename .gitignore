@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Data Cache
+cache/
+*.csv
+!dividend_stocks_master.csv
+
+# Streamlit
+.streamlit/

@@ -107,26 +107,12 @@ def get_latest_business_date():
     # 평일 16:00 이전이거나 주말이면 어제(또는 직전 평일)부터 탐색
     start_offset = 0 if (now_kst.weekday() < 5 and now_kst.hour >= 16) else 1
 
-    kst_bday = None
     for i in range(start_offset, start_offset + 10):
         d = now_kst - datetime.timedelta(days=i)
         if d.weekday() < 5:
-            kst_bday = d.strftime('%Y-%m-%d')
-            break
+            return d.strftime('%Y-%m-%d')
 
-    if not kst_bday:
-        kst_bday = (now_kst - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-
-    if HAS_PYKRX and stock:
-        try:
-            clean_d = kst_bday.replace('-', '')
-            krx_day = stock.get_nearest_business_day_in_a_week(date=clean_d)
-            if krx_day and len(krx_day) == 8 and krx_day <= clean_d:
-                return f"{krx_day[:4]}-{krx_day[4:6]}-{krx_day[6:]}"
-        except Exception:
-            pass
-
-    return kst_bday
+    return (now_kst - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
 
 def load_market_data(force_refresh=False):
@@ -269,33 +255,37 @@ def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None
         if df_price.empty:
             return pd.DataFrame(), df_div_annual
 
-        # 3. 타임존 제거 (Asia/Seoul 등의 타임존이 있으면 Plotly에서 UTC 변환 시 날짜가 하루 전으로 표시되는 현상 원천 방지)
+        # 3. 타임존 제거 및 YYYY-MM-DD 날짜로 완전 정규화
         try:
             if hasattr(df_price.index, 'tz') and df_price.index.tz is not None:
                 df_price.index = df_price.index.tz_localize(None)
-            df_price.index = pd.to_datetime(df_price.index.strftime('%Y-%m-%d'))
-        except Exception:
-            pass
+            df_price.index = pd.to_datetime([d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d)[:10] for d in df_price.index])
+        except Exception as ex_tz:
+            print(f"인덱스 타임존 정규화 예외 무시: {ex_tz}")
 
-        # 4. 테이블의 최신 검증 종가 데이터와 시계열 동기화 (달력 날짜 date() 단위 비교로 타임존 충돌 TypeError 방지)
+        # 4. 테이블의 최신 검증 종가 데이터와 시계열 강제 동기화 (야후파이낸스 한국 주식 반영 지연 100% 방어)
         if latest_date and latest_price is not None and not df_price.empty:
             try:
                 p_val = float(latest_price)
                 if p_val > 0:
-                    clean_dt_str = str(latest_date).replace('-', '').strip()
-                    t_dt = pd.to_datetime(clean_dt_str)
-                    max_dt = df_price.index.max()
-                    if pd.notna(max_dt):
-                        t_date = t_dt.date() if hasattr(t_dt, 'date') else t_dt
-                        max_date = max_dt.date() if hasattr(max_dt, 'date') else max_dt
+                    clean_dt_str = str(latest_date).strip()
+                    if len(clean_dt_str) == 8 and clean_dt_str.isdigit():
+                        clean_dt_str = f"{clean_dt_str[:4]}-{clean_dt_str[4:6]}-{clean_dt_str[6:]}"
 
-                        if t_date > max_date:
-                            new_row = pd.DataFrame({"종가": [p_val]}, index=[pd.Timestamp(t_date)])
+                    target_dt = pd.to_datetime(clean_dt_str)
+                    max_dt = df_price.index.max()
+
+                    if pd.notna(max_dt):
+                        if target_dt > max_dt:
+                            new_row = pd.DataFrame({"종가": [p_val]}, index=[target_dt])
                             df_price = pd.concat([df_price, new_row])
-                        elif t_date == max_date:
-                            df_price.loc[max_dt, "종가"] = p_val
+                        elif target_dt in df_price.index:
+                            df_price.loc[target_dt, "종가"] = p_val
+                        else:
+                            new_row = pd.DataFrame({"종가": [p_val]}, index=[target_dt])
+                            df_price = pd.concat([df_price, new_row])
             except Exception as ex_sync:
-                print(f"최신 종가 동기화 예외 무시: {ex_sync}")
+                print(f"최신 종가 동기화 예외: {ex_sync}")
 
         # 중복 인덱스 제거 및 정렬
         df_price = df_price[~df_price.index.duplicated(keep='last')].sort_index()

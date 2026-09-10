@@ -196,7 +196,7 @@ def get_cached_market_data(force_refresh=False):
     return data_loader.load_market_data(force_refresh=force_refresh)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def get_cached_stock_history_and_dividends(ticker, market, months=12, latest_date=None, latest_price=None, force_refresh=False, *args, **kwargs):
     try:
         return data_loader.load_stock_history_and_dividends(
@@ -598,7 +598,7 @@ with col_ch1:
             mode='lines',
             name="주가 (종가)",
             line=dict(color='#38bdf8', width=2),
-            hovertemplate=f"%{{x}}<br>종가: %{{y:,.0f}}{currency_unit}<extra></extra>" if is_korean else f"%{{x}}<br>종가: $%{{y:,.2f}}<extra></extra>"
+            hovertemplate=f"종가: %{{y:,.0f}}{currency_unit}<extra></extra>" if is_korean else f"종가: $%{{y:,.2f}}<extra></extra>"
         ))
         fig1.add_trace(go.Scatter(
             x=date_strs,
@@ -606,7 +606,7 @@ with col_ch1:
             mode='lines',
             name="20일 이동평균",
             line=dict(color='#f59e0b', width=1.5, dash='dot'),
-            hovertemplate=f"%{{x}}<br>20일 이평: %{{y:,.0f}}{currency_unit}<extra></extra>" if is_korean else f"%{{x}}<br>20일 이평: $%{{y:,.2f}}<extra></extra>"
+            hovertemplate=f"20일 이평: %{{y:,.0f}}{currency_unit}<extra></extra>" if is_korean else f"20일 이평: $%{{y:,.2f}}<extra></extra>"
         ))
         fig1.add_trace(go.Scatter(
             x=date_strs,
@@ -614,7 +614,7 @@ with col_ch1:
             mode='lines',
             name="60일 이동평균",
             line=dict(color='#a855f7', width=1.5, dash='dash'),
-            hovertemplate=f"%{{x}}<br>60일 이평: %{{y:,.0f}}{currency_unit}<extra></extra>" if is_korean else f"%{{x}}<br>60일 이평: $%{{y:,.2f}}<extra></extra>"
+            hovertemplate=f"60일 이평: %{{y:,.0f}}{currency_unit}<extra></extra>" if is_korean else f"60일 이평: $%{{y:,.2f}}<extra></extra>"
         ))
         y_label = f"주가 ({currency_unit})"
     else:

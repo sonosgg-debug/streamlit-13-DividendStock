@@ -342,7 +342,11 @@ def create_excel_download(df_export, market_name):
 
                 if col_name in ["순위", "코드/티커", "시장", "배당주기", "배당안전성", "배당 안정성"]:
                     cell.alignment = Alignment(horizontal="center", vertical="center")
-                    if col_name == "코드/티커":
+                    if col_name == "순위":
+                        cell.number_format = '#,##0'
+                        # 순위 열은 다른 열을 정렬/필터 토글해도 항상 1부터 100까지 고정 유지되도록 동적 수식 적용
+                        cell.value = f"=ROW()-1"
+                    elif col_name == "코드/티커":
                         cell.number_format = '@'
                 elif col_name in ["종목명", "업종"]:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
@@ -364,9 +368,9 @@ def create_excel_download(df_export, market_name):
                 else:
                     cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # 자동 필터 (헤더 오름차순 / 내림차순 정렬 토글) 활성화
+        # 자동 필터 (오름차순/내림차순 정렬 토글): 순위(A열)는 제외하고 B열부터 적용
         end_col_letter = get_column_letter(len(df_export.columns))
-        worksheet.auto_filter.ref = f"A1:{end_col_letter}{len(df_export) + 1}"
+        worksheet.auto_filter.ref = f"B1:{end_col_letter}{len(df_export) + 1}"
 
         # 열 너비 자동 조정
         for col in worksheet.columns:

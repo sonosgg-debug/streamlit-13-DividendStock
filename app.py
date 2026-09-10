@@ -283,6 +283,21 @@ with st.sidebar:
         help="현금흐름 계획에 맞는 배당주기를 필터링합니다."
     )
 
+    # 정렬 기준 선택 (순위는 1부터 100까지 항상 고정 유지)
+    sort_option = st.selectbox(
+        "정렬 기준 (정렬 항목)",
+        options=[
+            "배당수익률 높은순 (기본)",
+            "시가총액 높은순",
+            "현재가 높은순",
+            "배당금 높은순",
+            "배당성향 낮은순",
+            "배당성향 높은순"
+        ],
+        index=0,
+        help="선택한 항목으로 재정렬하더라도 순위는 늘 1부터 100까지 고정 표시됩니다."
+    )
+
     st.markdown("<hr style='border: 0; height: 1px; background-color: #334155; margin: 16px 0;'>", unsafe_allow_html=True)
 
     # 4) 캐시 갱신 버튼
@@ -333,6 +348,23 @@ elif safety_filter == "안전만":
 
 if freq_filter != "전체 주기":
     df_filtered = df_filtered[df_filtered["배당주기"] == freq_filter]
+
+# 3) 정렬 기준 적용 (다른 항목으로 재정렬하더라도 순위는 늘 1부터 100까지 고정 유지)
+if sort_option == "시가총액 높은순":
+    df_filtered = df_filtered.sort_values(by="시가총액", ascending=False).reset_index(drop=True)
+elif sort_option == "현재가 높은순":
+    df_filtered = df_filtered.sort_values(by="현재가", ascending=False).reset_index(drop=True)
+elif sort_option == "배당금 높은순":
+    df_filtered = df_filtered.sort_values(by="배당금", ascending=False).reset_index(drop=True)
+elif sort_option == "배당성향 낮은순":
+    df_filtered = df_filtered.sort_values(by="배당성향", ascending=True).reset_index(drop=True)
+elif sort_option == "배당성향 높은순":
+    df_filtered = df_filtered.sort_values(by="배당성향", ascending=False).reset_index(drop=True)
+else:
+    df_filtered = df_filtered.sort_values(by="배당수익률", ascending=False).reset_index(drop=True)
+
+# 순위는 어떤 항목으로 정렬하더라도 항상 1부터 100까지 고정
+df_filtered["순위"] = list(range(1, len(df_filtered) + 1))
 
 
 # ==========================================
@@ -456,7 +488,7 @@ display_cols = [
 ]
 
 column_config = {
-    "순위": st.column_config.NumberColumn("순위", width=50, format="%d"),
+    "순위": st.column_config.NumberColumn("순위", width=50, format="%d", pinned=True),
     "코드/티커": st.column_config.TextColumn("코드/티커", width=75),
     "종목명": st.column_config.TextColumn("종목명", width="medium"),
     "시장": st.column_config.TextColumn("시장", width="small"),

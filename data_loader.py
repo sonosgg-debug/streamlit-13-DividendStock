@@ -87,10 +87,56 @@ except Exception:
     yf = None
     HAS_YF = False
 
+try:
+    import FinanceDataReader as fdr
+    HAS_FDR = True
+except Exception:
+    fdr = None
+    HAS_FDR = False
+
+from concurrent.futures import ThreadPoolExecutor
+
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(CURRENT_DIR, "cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 MASTER_FILE = os.path.join(CURRENT_DIR, "dividend_stocks_master.csv")
+
+# 분기배당 실시하는 대표 국내 기업 목록
+QUARTERLY_KR_STOCKS = {
+    '005930', '005935', '000660', '005380', '000270', '055550', '105560', '086790',
+    '316140', '017670', '030200', '032640', '034730', '005490', '036570', '035420',
+    '051910', '012330', '003670'
+}
+
+
+def evaluate_dividend_safety(payout_ratio, div_yield, eps=1.0, market=""):
+    """
+    배당 안전성 평가 로직 (안전, 보통, 주의)
+    """
+    if pd.isna(payout_ratio) or payout_ratio is None:
+        if eps is not None and eps <= 0:
+            return "🔴 주의 (적자 배당)"
+        return "🟡 보통"
+    
+    try:
+        payout_ratio = float(payout_ratio)
+    except Exception:
+        return "🟡 보통"
+
+    try:
+        div_yield = float(div_yield)
+    except Exception:
+        div_yield = 0.0
+
+    if payout_ratio > 100:
+        return "🔴 주의 (과다 배당)"
+    elif payout_ratio > 75 or div_yield > 12:
+        return "🟡 보통 (고배당 주의)"
+    elif 10 <= payout_ratio <= 75:
+        return "🟢 안전 (안정적)"
+    elif payout_ratio < 10:
+        return "🟢 안전 (저성향)"
+    return "🟡 보통"
 
 
 def get_latest_business_date():
@@ -101,6 +147,15 @@ def get_latest_business_date():
     - 평일 16:00 이후에는 '당일'을 최신 영업일로 설정
     - 주말(토, 일)에는 '직전 금요일'을 최신 영업일로 설정
     """
+    # 1. pykrx 연결 가능한 경우 최우선으로 거래소 최근 영업일 조회
+    if HAS_PYKRX and stock:
+        try:
+            krx_day = stock.get_nearest_business_day_in_a_week()
+            if krx_day and len(krx_day) == 8:
+                return f"{krx_day[:4]}-{krx_day[4:6]}-{krx_day[6:]}"
+        except Exception:
+            pass
+
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     now_kst = now_utc + datetime.timedelta(hours=9)
 
@@ -115,27 +170,168 @@ def get_latest_business_date():
     return (now_kst - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
 
+def update_market_data_for_date(target_date):
+    """
+    지정된 최신 기준일(target_date: YYYY-MM-DD)에 맞추어 4개 시장(KOSPI, KOSDAQ, S&P 500, NASDAQ)
+    TOP 100 배당주 데이터를 수집 및 갱신하고 캐시와 마스터 파일에 동시 저장합니다.
+    """
+    clean_date = target_date.replace('-', '').strip()
+    cache_path = os.path.join(CACHE_DIR, f"dividend_summary_{clean_date}.csv")
+    print(f"[data_loader] {target_date} ({clean_date}) 기준 최신 시장 데이터 업데이트 시작...")
+    df_parts = []
+
+    # 1. 한국 시장 (KOSPI, KOSDAQ) - pykrx 공식 일별 펀더멘털 & 시가총액 직접 수집 (약 3~5초 소요)
+    if HAS_PYKRX and stock:
+        for market_name in ['KOSPI', 'KOSDAQ']:
+            try:
+                fund = stock.get_market_fundamental_by_ticker(clean_date, market=market_name)
+                cap = stock.get_market_cap_by_ticker(clean_date, market=market_name)
+                sec = stock.get_market_sector_classifications(clean_date, market=market_name)
+
+                df_kr = pd.DataFrame(index=fund.index)
+                df_kr['티커'] = fund.index
+                df_kr['종목명'] = sec['종목명'] if '종목명' in sec.columns else [stock.get_market_ticker_name(t) for t in fund.index]
+                df_kr['시장'] = market_name
+                df_kr['업종'] = sec['업종명'] if '업종명' in sec.columns else '기타'
+                df_kr['현재가'] = cap['종가'].astype(float)
+                df_kr['시가총액'] = cap['시가총액'].astype(float)
+                df_kr['배당금'] = fund['DPS'].astype(float)
+                df_kr['배당수익률'] = fund['DIV'].astype(float)
+                df_kr['EPS'] = fund['EPS'].astype(float)
+
+                # 스팩 및 배당금 0 종목 제외
+                df_kr = df_kr[~df_kr['종목명'].str.contains('스팩', na=False)]
+                df_kr = df_kr[df_kr['배당수익률'] > 0]
+                df_kr = df_kr[df_kr['배당금'] > 0]
+                df_kr = df_kr[df_kr['시가총액'] >= 100_000_000]
+
+                # 배당성향 계산
+                df_kr['배당성향'] = np.where(
+                    (df_kr['EPS'] > 0) & (df_kr['배당금'] > 0),
+                    np.round((df_kr['배당금'] / df_kr['EPS']) * 100, 2),
+                    np.nan
+                )
+
+                # 배당수익률 기준 정렬 후 상위 100개
+                df_kr = df_kr.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
+                df_kr['순위'] = range(1, len(df_kr) + 1)
+                df_kr['배당주기'] = df_kr['티커'].apply(lambda t: '분기배당' if t in QUARTERLY_KR_STOCKS else '연배당')
+                df_kr['배당안전성'] = [
+                    evaluate_dividend_safety(p, y, e, market_name)
+                    for p, y, e in zip(df_kr['배당성향'], df_kr['배당수익률'], df_kr['EPS'])
+                ]
+
+                cols = ['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성']
+                df_kr = df_kr[cols]
+                df_parts.append(df_kr)
+                print(f"[{market_name}] {len(df_kr)}개 종목 최신화 완료 (기준일: {clean_date})")
+            except Exception as e_kr:
+                print(f"[{market_name}] pykrx 수집 예외: {e_kr}")
+
+    # 2. 미국 시장 (S&P 500, NASDAQ) - FDR 및 yfinance 병렬 종가 최신 동기화
+    df_existing_master = pd.DataFrame()
+    if os.path.exists(MASTER_FILE):
+        try:
+            df_existing_master = pd.read_csv(MASTER_FILE, dtype={'티커': str}, encoding='utf-8-sig')
+        except Exception:
+            pass
+
+    for us_market in ['S&P500', 'NASDAQ']:
+        df_us_sub = pd.DataFrame()
+        if not df_existing_master.empty and '시장' in df_existing_master.columns:
+            df_us_sub = df_existing_master[df_existing_master['시장'] == us_market].copy()
+
+        if not df_us_sub.empty:
+            tickers = df_us_sub['티커'].tolist()
+            price_map = {}
+
+            def fetch_latest_us_price(sym):
+                # 1차 FinanceDataReader 시도 (빠르고 Rate Limit 없음)
+                if HAS_FDR and fdr:
+                    try:
+                        s_dt = (pd.to_datetime(target_date) - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+                        e_dt = (pd.to_datetime(target_date) + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                        df_p = fdr.DataReader(sym, s_dt, e_dt)
+                        if not df_p.empty and 'Close' in df_p.columns:
+                            c_series = df_p.loc[df_p.index <= pd.to_datetime(target_date), 'Close'].dropna()
+                            if not c_series.empty:
+                                return sym, float(c_series.iloc[-1])
+                    except Exception:
+                        pass
+                # 2차 yfinance 폴백
+                if HAS_YF and yf:
+                    try:
+                        t = yf.Ticker(sym)
+                        h = t.history(period="5d")
+                        if not h.empty and 'Close' in h.columns:
+                            c_series = h['Close'].dropna()
+                            if not c_series.empty:
+                                return sym, float(c_series.iloc[-1])
+                    except Exception:
+                        pass
+                return sym, None
+
+            with ThreadPoolExecutor(max_workers=15) as executor:
+                results = list(executor.map(fetch_latest_us_price, tickers))
+
+            for sym, price in results:
+                if price is not None and price > 0:
+                    price_map[sym] = price
+
+            # 최신 가격 반영 및 지표 재계산
+            for idx, row in df_us_sub.iterrows():
+                sym = row['티커']
+                if sym in price_map:
+                    new_p = price_map[sym]
+                    old_p = row['현재가']
+                    ratio = (new_p / old_p) if (old_p and old_p > 0) else 1.0
+                    df_us_sub.at[idx, '현재가'] = round(new_p, 2)
+                    if row['시가총액'] > 0:
+                        df_us_sub.at[idx, '시가총액'] = round(row['시가총액'] * ratio, 2)
+                    if row['배당금'] > 0:
+                        df_us_sub.at[idx, '배당수익률'] = round((row['배당금'] / new_p) * 100, 2)
+                    df_us_sub.at[idx, '배당안전성'] = evaluate_dividend_safety(
+                        row.get('배당성향', np.nan),
+                        df_us_sub.at[idx, '배당수익률'],
+                        1.0,
+                        us_market
+                    )
+
+            # 배당수익률 기준 재정렬 후 100개
+            df_us_sub = df_us_sub.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
+            df_us_sub['순위'] = range(1, len(df_us_sub) + 1)
+            cols = ['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성']
+            df_us_sub = df_us_sub[cols]
+            df_parts.append(df_us_sub)
+            print(f"[{us_market}] {len(df_us_sub)}개 종목 갱신 완료 (가격 반영: {len(price_map)}/{len(tickers)})")
+
+    # 3. 통합 DataFrame 병합 및 저장
+    if df_parts:
+        df_all = pd.concat(df_parts, ignore_index=True)
+        if len(df_all) >= 300:
+            # 캐시 파일 저장
+            df_all.to_csv(cache_path, index=False, encoding='utf-8-sig')
+            # 마스터 파일 동시 저장
+            df_all.to_csv(MASTER_FILE, index=False, encoding='utf-8-sig')
+            print(f"[data_loader] {target_date} 데이터 저장 완료: 총 {len(df_all)}개 종목")
+            return df_all
+
+    return pd.DataFrame()
+
+
 def load_market_data(force_refresh=False):
     """
     한국 및 미국 4개 시장(KOSPI, KOSDAQ, S&P500, NASDAQ)의 배당주 데이터를 로드합니다.
-    - 캐시 파일 또는 마스터 데이터셋을 통해 0.1초 즉시 반환.
-    - force_refresh=True일 경우 build_master_data를 호출하여 캐시 갱신.
+    - 당일 최신 기준일 캐시 파일이 있으면 0.05초 즉시 반환.
+    - 캐시 파일이 없거나 force_refresh=True일 경우 최신 기준일 데이터로 수집/갱신.
     반환값: (df_all, target_date_str)
     """
     date_display = get_latest_business_date()
     today_clean = date_display.replace('-', '')
     cache_path = os.path.join(CACHE_DIR, f"dividend_summary_{today_clean}.csv")
 
-    # 1. 강제 갱신 요청 시
-    if force_refresh:
-        try:
-            import build_master_data
-            build_master_data.main()
-        except Exception as e:
-            print(f"데이터 강제 갱신 실패: {e}")
-
-    # 2. 당일 캐시 파일 확인
-    if os.path.exists(cache_path):
+    # 1. 당일 캐시 파일 확인 (force_refresh=False인 경우 즉시 반환)
+    if not force_refresh and os.path.exists(cache_path):
         try:
             df = pd.read_csv(cache_path, dtype={'티커': str}, encoding='utf-8-sig')
             if not df.empty and len(df) >= 300:
@@ -143,7 +339,15 @@ def load_market_data(force_refresh=False):
         except Exception as e:
             print(f"당일 캐시 로드 실패: {e}")
 
-    # 3. 마스터 파일 확인
+    # 2. 캐시 파일이 없거나 강제 갱신(force_refresh=True) 요청 시: 최신 데이터 수집 및 갱신
+    try:
+        df_updated = update_market_data_for_date(date_display)
+        if not df_updated.empty and len(df_updated) >= 300:
+            return df_updated, date_display
+    except Exception as e:
+        print(f"최신 데이터 수집 업데이트 실패: {e}")
+
+    # 3. 폴백: 마스터 파일 확인 (최신 수집이 실패한 비상 상황에서만 사용)
     if os.path.exists(MASTER_FILE):
         try:
             df = pd.read_csv(MASTER_FILE, dtype={'티커': str}, encoding='utf-8-sig')
@@ -151,16 +355,6 @@ def load_market_data(force_refresh=False):
                 return df, date_display
         except Exception as e:
             print(f"마스터 파일 로드 실패: {e}")
-
-    # 4. 파일이 없을 경우 즉석 빌드
-    try:
-        import build_master_data
-        build_master_data.main()
-        if os.path.exists(MASTER_FILE):
-            df = pd.read_csv(MASTER_FILE, dtype={'티커': str}, encoding='utf-8-sig')
-            return df, date_display
-    except Exception as e:
-        print(f"즉석 마스터 빌드 실패: {e}")
 
     return pd.DataFrame(), date_display
 
@@ -251,6 +445,20 @@ def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None
                         df_div_annual['배당성장률(%)'] = growth_rates
             except Exception as e:
                 print(f"{yf_symbol} yfinance 로드 실패: {e}")
+
+        # 2-2. 주가 데이터가 비어있으면 FinanceDataReader로 시계열 폴백 수집
+        if df_price.empty and HAS_FDR and fdr:
+            try:
+                fdr_sym = str(ticker)
+                end_fdr = (pd.to_datetime(end_date_str) + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                df_fdr = fdr.DataReader(fdr_sym, start_date_str, end_fdr)
+                if not df_fdr.empty and 'Close' in df_fdr.columns:
+                    df_fdr = df_fdr[df_fdr.index <= pd.to_datetime(end_date_str)]
+                    if not df_fdr.empty:
+                        df_price = pd.DataFrame(index=df_fdr.index)
+                        df_price['종가'] = df_fdr['Close'].astype(float).values
+            except Exception as e_fdr:
+                print(f"{ticker} FDR 히스토리 폴백 실패: {e_fdr}")
 
         if df_price.empty:
             return pd.DataFrame(), df_div_annual

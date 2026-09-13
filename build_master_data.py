@@ -256,6 +256,15 @@ def build_us_market_sp500():
     df = pd.DataFrame(records)
     print(f"[S&P500] 배당 지급 종목 수: {len(df)}개")
 
+    if df.empty or '배당수익률' not in df.columns or len(df) == 0:
+        print("[S&P500] yfinance 수집 실패 또는 호출 한도 초과. 기존 마스터 데이터에서 폴백 로드합니다.")
+        if os.path.exists(MASTER_FILE):
+            df_m = pd.read_csv(MASTER_FILE, dtype={'티커': str}, encoding='utf-8-sig')
+            df_sp = df_m[df_m['시장'] == 'S&P500'].copy().reset_index(drop=True)
+            if not df_sp.empty:
+                return df_sp
+        return pd.DataFrame(columns=['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성'])
+
     # 배당수익률 기준 내림차순 정렬 후 100개
     df = df.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
     df['순위'] = range(1, len(df) + 1)
@@ -468,6 +477,15 @@ def build_us_market_nasdaq():
     df = pd.DataFrame(records)
     print(f"[NASDAQ] 배당 지급 종목 수: {len(df)}개")
 
+    if df.empty or '배당수익률' not in df.columns or len(df) == 0:
+        print("[NASDAQ] yfinance 수집 실패 또는 호출 한도 초과. 기존 마스터 데이터에서 폴백 로드합니다.")
+        if os.path.exists(MASTER_FILE):
+            df_m = pd.read_csv(MASTER_FILE, dtype={'티커': str}, encoding='utf-8-sig')
+            df_nas = df_m[df_m['시장'] == 'NASDAQ'].copy().reset_index(drop=True)
+            if not df_nas.empty:
+                return df_nas
+        return pd.DataFrame(columns=['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성'])
+
     df = df.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
     df['순위'] = range(1, len(df) + 1)
     df = df[[
@@ -504,8 +522,8 @@ def main():
     df_all.to_csv(MASTER_FILE, index=False, encoding='utf-8-sig')
     print(f"[저장 완료] 마스터 파일: {MASTER_FILE}")
 
-    today_str = datetime.datetime.now().strftime("%Y%m%d")
-    cache_file = os.path.join(CACHE_DIR, f"dividend_summary_{today_str}.csv")
+    krx_date = get_latest_krx_date()
+    cache_file = os.path.join(CACHE_DIR, f"dividend_summary_{krx_date}.csv")
     df_all.to_csv(cache_file, index=False, encoding='utf-8-sig')
     print(f"[저장 완료] 당일 캐시 파일: {cache_file}")
 

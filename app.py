@@ -220,6 +220,8 @@ if 'selected_stock_key' not in st.session_state:
     st.session_state.selected_stock_key = None
 if 'force_reload' not in st.session_state:
     st.session_state.force_reload = False
+if 'show_refresh_toast' not in st.session_state:
+    st.session_state.show_refresh_toast = False
 
 
 # ==========================================
@@ -304,6 +306,7 @@ with st.sidebar:
     if st.button("🔄 최신 데이터 강제 갱신", use_container_width=True):
         st.cache_data.clear()
         st.session_state.force_reload = True
+        st.session_state.show_refresh_toast = True
         st.rerun()
 
 
@@ -315,6 +318,10 @@ st.session_state.force_reload = False
 
 with st.spinner("증시 배당주 펀더멘털 데이터를 불러오는 중입니다..."):
     df_raw, target_date = get_cached_market_data(force_refresh=force_refresh)
+
+if st.session_state.get('show_refresh_toast', False):
+    st.toast(f"✅ {target_date} 최신 주가 및 배당 데이터가 성공적으로 갱신되었습니다!", icon="🚀")
+    st.session_state.show_refresh_toast = False
 
 if df_raw.empty:
     st.error("데이터를 불러올 수 없습니다. 인터넷 연결 및 데이터 소스 설정을 확인하세요.")

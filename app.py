@@ -319,7 +319,7 @@ with st.sidebar:
     )
 
     # 2) 조회 버튼
-    btn_search = st.button("🔍 시장 조회", type="primary", use_container_width=True)
+    btn_search = st.button("🔍 조회", type="primary", use_container_width=True)
     if btn_search or (market_choice != st.session_state.market_selection):
         st.session_state.market_selection = market_choice
         st.session_state.selected_stock_key = None

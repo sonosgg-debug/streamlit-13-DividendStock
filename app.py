@@ -56,7 +56,7 @@ st.markdown("""
     /* Main Content Area */
     .main .block-container,
     [data-testid="stMainBlockContainer"] {
-        padding-top: 2.2rem !important;
+        padding-top: 2.0rem !important;
         padding-bottom: 3.5rem !important;
         max-width: 98% !important;
     }
@@ -71,6 +71,7 @@ st.markdown("""
     h1, .main h1, [data-testid="stHeadingWithActionElements"] h1 {
         color: #8AB4F8 !important;
         font-weight: 800 !important;
+        font-size: 2.0rem !important;
     }
 
     section[data-testid="stSidebar"] h1, 
@@ -366,7 +367,7 @@ with st.sidebar:
     st.markdown("<hr style='border: 0; height: 1px; background-color: #334155; margin: 16px 0;'>", unsafe_allow_html=True)
 
     # 4) 캐시 갱신 버튼
-    if st.button("🔄 최신 데이터 강제 갱신", use_container_width=True):
+    if st.button("🔄 Update", use_container_width=True):
         st.cache_data.clear()
         st.session_state.force_reload = True
         st.session_state.show_refresh_toast = True
@@ -441,7 +442,7 @@ df_filtered["순위"] = list(range(1, len(df_filtered) + 1))
 # 7. 메인 타이틀 영역
 # ==========================================
 st.markdown(
-    "<h1 style='text-align: center; color: #8AB4F8 !important; font-weight: 800; font-size: 1.9rem; margin-top: 0; margin-bottom: 0.3rem; letter-spacing: -0.5px;'>"
+    "<h1 style='text-align: center; color: #8AB4F8 !important; font-weight: 800; font-size: 2.0rem; margin-top: 0; margin-bottom: 0.3rem; letter-spacing: -0.5px;'>"
     "<span style='color: #8AB4F8 !important;'>한국 및 미국 증시 배당주 TOP 100</span>"
     "</h1>",
     unsafe_allow_html=True
@@ -977,3 +978,12 @@ with st.container(border=True):
             st.caption("3개월마다 현금이 유입되는 **분기배당 종목**으로, 계절적 배당 쏠림 없이 연중 안정적인 재투자 사이클을 운영할 수 있습니다.")
         else:
             st.caption("연 1회 결산배당 중심의 종목으로, 연말 배당락일 전후의 주가 변동성을 활용한 전략적 매수 진입이 유효합니다.")
+
+# 하단 투자 유의사항 공통 푸터
+st.markdown("<hr style='border: 0; height: 1px; background-color: #334155; margin: 30px 0 10px 0;'>", unsafe_allow_html=True)
+st.markdown(
+    "<div style='text-align: center; color: #64748b; font-size: 0.8rem; margin-top: 8px; margin-bottom: 24px; line-height: 1.6;'>"
+    "⚠️ 본 서비스에서 제공하는 모든 정보는 투자 참고용이며, 투자의 최종 결정과 책임은 투자자 본인에게 있습니다."
+    "</div>",
+    unsafe_allow_html=True
+)

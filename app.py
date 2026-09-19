@@ -531,7 +531,7 @@ with col_dl:
     file_name = f"{active_market}_배당주_TOP100_{target_date.replace('-', '')}.xlsx"
     
     st.download_button(
-        label="📥 엑셀 다운로드 (.xlsx)",
+        label="📥 엑셀 파일 다운로드",
         data=excel_bytes,
         file_name=file_name,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

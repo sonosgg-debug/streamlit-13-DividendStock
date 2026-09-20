@@ -519,7 +519,7 @@ with col_dl:
     ]
     df_excel = df_excel[excel_cols].copy()
     excel_bytes = data_loader.create_excel_download(df_excel, active_market)
-    file_name = f"{active_market}_배당주_TOP100_{target_date.replace('-', '')}.xlsx"
+    file_name = f"배당주_TOP100_{active_market}_{target_date.replace('-', '')}.xlsx"
     
     st.download_button(
         label="📥 엑셀 파일 다운로드",

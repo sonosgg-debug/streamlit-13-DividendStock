@@ -256,7 +256,7 @@ st.markdown("""
 # 3. 데이터 로딩 캐시 함수
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_cached_market_data(force_refresh=False):
+def get_cached_market_data(target_date_key: str, force_refresh: bool = False):
     return data_loader.load_market_data(force_refresh=force_refresh)
 
 
@@ -383,9 +383,10 @@ with st.sidebar:
 # ==========================================
 force_refresh = st.session_state.force_reload
 st.session_state.force_reload = False
+latest_biz_date = data_loader.get_latest_business_date()
 
 with st.spinner("증시 배당주 펀더멘털 데이터를 불러오는 중입니다..."):
-    df_raw, target_date = get_cached_market_data(force_refresh=force_refresh)
+    df_raw, target_date = get_cached_market_data(latest_biz_date, force_refresh=force_refresh)
 
 if st.session_state.get('show_refresh_toast', False):
     st.toast(f"✅ {target_date} 최신 주가 및 배당 데이터가 성공적으로 갱신되었습니다!", icon="🚀")

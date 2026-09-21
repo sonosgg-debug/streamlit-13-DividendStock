@@ -180,7 +180,7 @@ def update_market_data_for_date(target_date):
     print(f"[data_loader] {target_date} ({clean_date}) 기준 최신 시장 데이터 업데이트 시작...")
     df_parts = []
 
-    # 1. 한국 시장 (KOSPI, KOSDAQ) - pykrx 공식 일별 펀더멘털 & 시가총액 직접 수집 (약 3~5초 소요)
+    # 1. 한국 시장 (KOSPI, KOSDAQ) - pykrx 펀더멘털 수집 후 포털 확정 종가 및 시가총액 2차 동기화
     if HAS_PYKRX and stock:
         for market_name in ['KOSPI', 'KOSDAQ']:
             try:
@@ -195,6 +195,7 @@ def update_market_data_for_date(target_date):
                 df_kr['업종'] = sec['업종명'] if '업종명' in sec.columns else '기타'
                 df_kr['현재가'] = cap['종가'].astype(float)
                 df_kr['시가총액'] = cap['시가총액'].astype(float)
+                df_kr['상장주식수'] = cap['상장주식수'].astype(float) if '상장주식수' in cap.columns else 0.0
                 df_kr['배당금'] = fund['DPS'].astype(float)
                 df_kr['배당수익률'] = fund['DIV'].astype(float)
                 df_kr['EPS'] = fund['EPS'].astype(float)
@@ -205,26 +206,80 @@ def update_market_data_for_date(target_date):
                 df_kr = df_kr[df_kr['배당금'] > 0]
                 df_kr = df_kr[df_kr['시가총액'] >= 100_000_000]
 
-                # 배당성향 계산
+                # 배당성향 1차 계산
                 df_kr['배당성향'] = np.where(
                     (df_kr['EPS'] > 0) & (df_kr['배당금'] > 0),
                     np.round((df_kr['배당금'] / df_kr['EPS']) * 100, 2),
                     np.nan
                 )
 
-                # 배당수익률 기준 정렬 후 상위 100개
-                df_kr = df_kr.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
-                df_kr['순위'] = range(1, len(df_kr) + 1)
-                df_kr['배당주기'] = df_kr['티커'].apply(lambda t: '분기배당' if t in QUARTERLY_KR_STOCKS else '연배당')
-                df_kr['배당안전성'] = [
-                    evaluate_dividend_safety(p, y, e, market_name)
-                    for p, y, e in zip(df_kr['배당성향'], df_kr['배당수익률'], df_kr['EPS'])
-                ]
+                # 배당수익률 기준 정렬 후 상위 120개 후보군 선별 (확정 종가 보정 후 최종 100개 확정)
+                df_candidate = df_kr.sort_values(by='배당수익률', ascending=False).head(120).copy().reset_index(drop=True)
+                cand_tickers = df_candidate['티커'].tolist()
 
-                cols = ['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성']
-                df_kr = df_kr[cols]
-                df_parts.append(df_kr)
-                print(f"[{market_name}] {len(df_kr)}개 종목 최신화 완료 (기준일: {clean_date})")
+                # 네이버 증권 공식 fchart API 직접 병렬 동기화 (네이버 실거래 확정 종가 100% 일치)
+                import xml.etree.ElementTree as et
+                import requests
+                from requests.adapters import HTTPAdapter
+
+                price_map_kr = {}
+                session = requests.Session()
+                adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
+                session.mount('https://', adapter)
+
+                def fetch_naver_portal_price(t_code):
+                    try:
+                        url = f"https://fchart.stock.naver.com/sise.nhn?symbol={t_code}&timeframe=day&count=1&requestType=0"
+                        r = session.get(url, timeout=1.5)
+                        node = et.fromstring(r.text).find('.//item')
+                        if node is not None:
+                            val = float(node.get('data').split('|')[4])
+                            if val > 0:
+                                return t_code, val
+                    except Exception:
+                        pass
+                    return t_code, None
+
+                with ThreadPoolExecutor(max_workers=15) as executor:
+                    fchart_res = list(executor.map(fetch_naver_portal_price, cand_tickers))
+
+                for t_code, p_val in fchart_res:
+                    if p_val is not None and p_val > 0:
+                        price_map_kr[t_code] = p_val
+
+                # 확정 종가 반영 및 시가총액/배당수익률 재계산
+                for idx, row in df_candidate.iterrows():
+                    sym = row['티커']
+                    if sym in price_map_kr:
+                        new_price = price_map_kr[sym]
+                        shrs = row['상장주식수']
+                        old_price = row['현재가']
+
+                        df_candidate.at[idx, '현재가'] = new_price
+                        # 시가총액 = 상장주식수 * 네이버 확정 종가
+                        if shrs and shrs > 0:
+                            df_candidate.at[idx, '시가총액'] = round(shrs * new_price, 0)
+                        elif old_price and old_price > 0 and row['시가총액'] > 0:
+                            df_candidate.at[idx, '시가총액'] = round(row['시가총액'] * (new_price / old_price), 0)
+
+                        # 배당수익률 = (배당금 / 네이버 확정 종가) * 100
+                        if row['배당금'] > 0 and new_price > 0:
+                            df_candidate.at[idx, '배당수익률'] = round((row['배당금'] / new_price) * 100, 2)
+
+                # 보정된 배당수익률 기준 재정렬 후 상위 100개 확정
+                df_kr_final = df_candidate.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
+                df_kr_final['순위'] = range(1, len(df_kr_final) + 1)
+                df_kr_final['배당주기'] = df_kr_final['티커'].apply(lambda t: '분기배당' if t in QUARTERLY_KR_STOCKS else '연배당')
+                df_kr_final['배당안전성'] = [
+                    evaluate_dividend_safety(p, y, e, market_name)
+                    for p, y, e in zip(df_kr_final['배당성향'], df_kr_final['배당수익률'], df_kr_final['EPS'])
+                ]
+                df_kr_final['기준일'] = target_date
+
+                cols = ['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일']
+                df_kr_final = df_kr_final[cols]
+                df_parts.append(df_kr_final)
+                print(f"[{market_name}] {len(df_kr_final)}개 종목 최신화 및 포털 종가/시가총액 동기화 완료 (동기화: {len(price_map_kr)}/{len(cand_tickers)}, 기준일: {target_date})")
             except Exception as e_kr:
                 print(f"[{market_name}] pykrx 수집 예외: {e_kr}")
 
@@ -246,7 +301,6 @@ def update_market_data_for_date(target_date):
             price_map = {}
 
             def fetch_latest_us_price(sym):
-                # 1차 FinanceDataReader 시도 (빠르고 Rate Limit 없음)
                 if HAS_FDR and fdr:
                     try:
                         s_dt = (pd.to_datetime(target_date) - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
@@ -258,20 +312,9 @@ def update_market_data_for_date(target_date):
                                 return sym, float(c_series.iloc[-1])
                     except Exception:
                         pass
-                # 2차 yfinance 폴백
-                if HAS_YF and yf:
-                    try:
-                        t = yf.Ticker(sym)
-                        h = t.history(period="5d")
-                        if not h.empty and 'Close' in h.columns:
-                            c_series = h['Close'].dropna()
-                            if not c_series.empty:
-                                return sym, float(c_series.iloc[-1])
-                    except Exception:
-                        pass
                 return sym, None
 
-            with ThreadPoolExecutor(max_workers=15) as executor:
+            with ThreadPoolExecutor(max_workers=30) as executor:
                 results = list(executor.map(fetch_latest_us_price, tickers))
 
             for sym, price in results:
@@ -300,7 +343,8 @@ def update_market_data_for_date(target_date):
             # 배당수익률 기준 재정렬 후 100개
             df_us_sub = df_us_sub.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
             df_us_sub['순위'] = range(1, len(df_us_sub) + 1)
-            cols = ['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성']
+            df_us_sub['기준일'] = target_date
+            cols = ['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일']
             df_us_sub = df_us_sub[cols]
             df_parts.append(df_us_sub)
             print(f"[{us_market}] {len(df_us_sub)}개 종목 갱신 완료 (가격 반영: {len(price_map)}/{len(tickers)})")
@@ -335,7 +379,8 @@ def load_market_data(force_refresh=False):
         try:
             df = pd.read_csv(cache_path, dtype={'티커': str}, encoding='utf-8-sig')
             if not df.empty and len(df) >= 300:
-                return df, date_display
+                actual_date = str(df['기준일'].iloc[0]) if ('기준일' in df.columns and pd.notna(df['기준일'].iloc[0])) else date_display
+                return df, actual_date
         except Exception as e:
             print(f"당일 캐시 로드 실패: {e}")
 
@@ -343,7 +388,8 @@ def load_market_data(force_refresh=False):
     try:
         df_updated = update_market_data_for_date(date_display)
         if not df_updated.empty and len(df_updated) >= 300:
-            return df_updated, date_display
+            actual_date = str(df_updated['기준일'].iloc[0]) if ('기준일' in df_updated.columns and pd.notna(df_updated['기준일'].iloc[0])) else date_display
+            return df_updated, actual_date
     except Exception as e:
         print(f"최신 데이터 수집 업데이트 실패: {e}")
 
@@ -352,7 +398,8 @@ def load_market_data(force_refresh=False):
         try:
             df = pd.read_csv(MASTER_FILE, dtype={'티커': str}, encoding='utf-8-sig')
             if not df.empty and len(df) >= 300:
-                return df, date_display
+                actual_date = str(df['기준일'].iloc[0]) if ('기준일' in df.columns and pd.notna(df['기준일'].iloc[0])) else date_display
+                return df, actual_date
         except Exception as e:
             print(f"마스터 파일 로드 실패: {e}")
 

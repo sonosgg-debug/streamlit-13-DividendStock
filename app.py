@@ -453,12 +453,17 @@ st.markdown(
 )
 
 # 메타 정보 표시
+latest_biz_date = data_loader.get_latest_business_date()
+is_outdated = (target_date < latest_biz_date)
+outdated_badge = f" &nbsp;|&nbsp; <span style='color: #fbbf24; font-weight: 600;'>⚠️ 이전 마스터 기준 (🔄 Update 권장)</span>" if is_outdated else ""
+
 st.markdown(
     f"<div style='text-align: center; font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px;'>"
-    f"기준일: <span style='color: #38bdf8; font-weight: 600;'>{target_date}</span> (전일 종가 기준) &nbsp;|&nbsp; "
+    f"기준일: <span style='color: #38bdf8; font-weight: 600;'>{target_date}</span> (종가 기준) &nbsp;|&nbsp; "
     f"선택 시장: <span style='color: #f8fafc; font-weight: 700;'>{active_market}</span> &nbsp;|&nbsp; "
     f"표시 통화: <span style='color: #34d399; font-weight: 600;'>{'원화(KRW, ₩)' if is_korean else '달러(USD, $)'}</span> &nbsp;|&nbsp; "
-    f"데이터 출처: <span style='color: #cbd5e1;'>{'KRX 정보데이터시스템' if is_korean else 'S&P Dow Jones / Yahoo Finance'}</span>"
+    f"데이터 출처: <span style='color: #cbd5e1;'>{'KRX & 네이버 증권' if is_korean else 'S&P Dow Jones / Yahoo Finance'}</span>"
+    f"{outdated_badge}"
     f"</div>",
     unsafe_allow_html=True
 )

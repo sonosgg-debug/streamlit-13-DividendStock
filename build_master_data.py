@@ -120,6 +120,7 @@ def build_kr_market(market_name="KOSPI"):
     df['업종'] = sec['업종명'] if '업종명' in sec.columns else '기타'
     df['현재가'] = cap['종가'].astype(float)
     df['시가총액'] = cap['시가총액'].astype(float)
+    df['상장주식수'] = cap['상장주식수'].astype(float) if '상장주식수' in cap.columns else 0.0
     df['배당금'] = fund['DPS'].astype(float)
     df['배당수익률'] = fund['DIV'].astype(float)
     df['EPS'] = fund['EPS'].astype(float)
@@ -130,31 +131,84 @@ def build_kr_market(market_name="KOSPI"):
     df = df[df['배당금'] > 0]
     df = df[df['시가총액'] >= 100_000_000] # 최소 1억원 이상
 
-    # 배당성향 계산
+    # 배당성향 1차 계산
     df['배당성향'] = np.where(
         (df['EPS'] > 0) & (df['배당금'] > 0),
         np.round((df['배당금'] / df['EPS']) * 100, 2),
         np.nan
     )
 
-    # 배당수익률 기준 내림차순 정렬 후 상위 100개
-    df = df.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
-    df['순위'] = range(1, len(df) + 1)
+    # 배당수익률 기준 정렬 후 상위 120개 후보군 선별 (확정 종가 보정 후 최종 100개 확정)
+    df_candidate = df.sort_values(by='배당수익률', ascending=False).head(120).copy().reset_index(drop=True)
+    cand_tickers = df_candidate['티커'].tolist()
 
-    # 배당주기 및 안전성 부여
-    df['배당주기'] = df['티커'].apply(lambda t: '분기배당' if t in QUARTERLY_KR_STOCKS else '연배당')
-    df['배당안전성'] = [
+    # 네이버 증권 공식 fchart API 직접 병렬 동기화 (네이버 실거래 확정 종가 100% 일치)
+    import xml.etree.ElementTree as et
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    price_map_kr = {}
+    session = requests.Session()
+    adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
+    session.mount('https://', adapter)
+
+    def fetch_naver_portal_price(t_code):
+        try:
+            url = f"https://fchart.stock.naver.com/sise.nhn?symbol={t_code}&timeframe=day&count=1&requestType=0"
+            r = session.get(url, timeout=1.5)
+            node = et.fromstring(r.text).find('.//item')
+            if node is not None:
+                val = float(node.get('data').split('|')[4])
+                if val > 0:
+                    return t_code, val
+        except Exception:
+            pass
+        return t_code, None
+
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        fchart_res = list(executor.map(fetch_naver_portal_price, cand_tickers))
+
+    for t_code, p_val in fchart_res:
+        if p_val is not None and p_val > 0:
+            price_map_kr[t_code] = p_val
+
+    # 확정 종가 반영 및 시가총액/배당수익률 재계산
+    for idx, row in df_candidate.iterrows():
+        sym = row['티커']
+        if sym in price_map_kr:
+            new_price = price_map_kr[sym]
+            shrs = row['상장주식수']
+            old_price = row['현재가']
+
+            df_candidate.at[idx, '현재가'] = new_price
+            # 시가총액 = 상장주식수 * 네이버 확정 종가
+            if shrs and shrs > 0:
+                df_candidate.at[idx, '시가총액'] = round(shrs * new_price, 0)
+            elif old_price and old_price > 0 and row['시가총액'] > 0:
+                df_candidate.at[idx, '시가총액'] = round(row['시가총액'] * (new_price / old_price), 0)
+
+            # 배당수익률 = (배당금 / 네이버 확정 종가) * 100
+            if row['배당금'] > 0 and new_price > 0:
+                df_candidate.at[idx, '배당수익률'] = round((row['배당금'] / new_price) * 100, 2)
+
+    # 보정된 배당수익률 기준 재정렬 후 상위 100개 확정
+    df_final = df_candidate.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
+    df_final['순위'] = range(1, len(df_final) + 1)
+    df_final['배당주기'] = df_final['티커'].apply(lambda t: '분기배당' if t in QUARTERLY_KR_STOCKS else '연배당')
+    df_final['배당안전성'] = [
         evaluate_dividend_safety(p, y, e, market_name)
-        for p, y, e in zip(df['배당성향'], df['배당수익률'], df['EPS'])
+        for p, y, e in zip(df_final['배당성향'], df_final['배당수익률'], df_final['EPS'])
     ]
+    date_hyphen = f"{date[:4]}-{date[4:6]}-{date[6:]}"
+    df_final['기준일'] = date_hyphen
 
     # 불필요 컬럼 정리
-    df = df[[
+    df_final = df_final[[
         '순위', '종목명', '티커', '시장', '업종', '시가총액',
-        '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성'
+        '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일'
     ]]
-    print(f"[{market_name}] 수집 완료: {len(df)}개 종목")
-    return df
+    print(f"[{market_name}] 수집 완료: {len(df_final)}개 종목 (포털 종가 동기화: {len(price_map_kr)}/{len(cand_tickers)})")
+    return df_final
 
 
 def build_us_market_sp500():
@@ -268,9 +322,11 @@ def build_us_market_sp500():
     # 배당수익률 기준 내림차순 정렬 후 100개
     df = df.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
     df['순위'] = range(1, len(df) + 1)
+    date_krx = get_latest_krx_date()
+    df['기준일'] = f"{date_krx[:4]}-{date_krx[4:6]}-{date_krx[6:]}"
     df = df[[
         '순위', '종목명', '티커', '시장', '업종', '시가총액',
-        '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성'
+        '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일'
     ]]
     return df
 
@@ -488,9 +544,11 @@ def build_us_market_nasdaq():
 
     df = df.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
     df['순위'] = range(1, len(df) + 1)
+    date_krx = get_latest_krx_date()
+    df['기준일'] = f"{date_krx[:4]}-{date_krx[4:6]}-{date_krx[6:]}"
     df = df[[
         '순위', '종목명', '티커', '시장', '업종', '시가총액',
-        '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성'
+        '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일'
     ]]
     return df
 

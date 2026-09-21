@@ -62,19 +62,39 @@ QUARTERLY_KR_STOCKS = {
     '051910', '012330', '003670'
 }
 
-def get_latest_krx_date():
+def get_latest_business_date() -> str:
+    """
+    가장 최근 거래 완료된 영업일 YYYY-MM-DD 반환.
+    한국 장 마감 시간(15:30) 및 일별 정산(16:00)을 고려:
+    - 평일 16:00 KST 이전에는 아직 당일 종가가 확정되지 않았으므로 '직전 평일'을 기준일로 설정
+    - 평일 16:00 KST 이후에는 '당일'을 최신 영업일로 설정
+    - 주말(토, 일)에는 '직전 금요일'을 최신 영업일로 설정
+    """
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    now_kst = now_utc + datetime.timedelta(hours=9)
+    start_offset = 0 if (now_kst.weekday() < 5 and now_kst.hour >= 16) else 1
+
+    for i in range(start_offset, start_offset + 10):
+        d = now_kst - datetime.timedelta(days=i)
+        if d.weekday() < 5:
+            return d.strftime('%Y-%m-%d')
+    return (now_kst - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+
+
+def get_latest_krx_date(target_date: str = None) -> str:
+    """YYYYMMDD 포맷의 가장 최근 마감 영업일 반환 (pykrx 검증 지원)"""
+    if not target_date:
+        target_date = get_latest_business_date()
+    clean_date = target_date.replace('-', '').strip()
+
     if HAS_PYKRX and stock:
         try:
-            return stock.get_nearest_business_day_in_a_week()
+            krx_day = stock.get_nearest_business_day_in_a_week(date=clean_date)
+            if krx_day and len(krx_day) == 8 and krx_day <= clean_date:
+                return krx_day
         except Exception:
             pass
-    # 폴백: 최근 평일
-    now = datetime.datetime.now()
-    for i in range(10):
-        d = now - datetime.timedelta(days=i)
-        if d.weekday() < 5:
-            return d.strftime("%Y%m%d")
-    return now.strftime("%Y%m%d")
+    return clean_date
 
 
 def evaluate_dividend_safety(payout_ratio, div_yield, eps, market):
@@ -97,13 +117,17 @@ def evaluate_dividend_safety(payout_ratio, div_yield, eps, market):
     return "🟡 보통"
 
 
-def build_kr_market(market_name="KOSPI"):
+def build_kr_market(market_name="KOSPI", target_date: str = None):
     """
-    KOSPI 또는 KOSDAQ 배당 상위 100개 종목 수집
+    KOSPI 또는 KOSDAQ 배당 상위 100개 종목 수집.
+    target_date: 영업일 기준일 (예: '2026-09-21'). 미지정 시 get_latest_business_date() 사용.
     """
-    print(f"[{market_name}] 데이터 수집 시작...")
-    date = get_latest_krx_date()
-    print(f"[{market_name}] 기준일: {date}")
+    if not target_date:
+        target_date = get_latest_business_date()
+
+    print(f"[{market_name}] 데이터 수집 시작 (기준일: {target_date})...")
+    date = get_latest_krx_date(target_date)
+    print(f"[{market_name}] KRX 공식 영업일: {date}")
 
     if not HAS_PYKRX or not stock:
         print(f"pykrx를 사용할 수 없습니다.")
@@ -211,11 +235,15 @@ def build_kr_market(market_name="KOSPI"):
     return df_final
 
 
-def build_us_market_sp500():
+def build_us_market_sp500(target_date: str = None):
     """
-    S&P 500 종목 중 배당수익률 기준 상위 100개 종목 수집
+    S&P 500 종목 중 배당수익률 기준 상위 100개 종목 수집.
+    target_date: 영업일 기준일 (예: '2026-09-21'). 미지정 시 get_latest_business_date() 사용.
     """
-    print("[S&P500] 종목 리스트 수집 중...")
+    if not target_date:
+        target_date = get_latest_business_date()
+
+    print(f"[S&P500] 종목 리스트 수집 중 (기준일: {target_date})...")
     symbols_data = []
     if fdr is not None:
         try:
@@ -322,8 +350,7 @@ def build_us_market_sp500():
     # 배당수익률 기준 내림차순 정렬 후 100개
     df = df.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
     df['순위'] = range(1, len(df) + 1)
-    date_krx = get_latest_krx_date()
-    df['기준일'] = f"{date_krx[:4]}-{date_krx[4:6]}-{date_krx[6:]}"
+    df['기준일'] = target_date
     df = df[[
         '순위', '종목명', '티커', '시장', '업종', '시가총액',
         '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일'
@@ -331,11 +358,15 @@ def build_us_market_sp500():
     return df
 
 
-def build_us_market_nasdaq():
+def build_us_market_nasdaq(target_date: str = None):
     """
-    NASDAQ 상장 종목 중 배당수익률 기준 상위 100개 종목 수집
+    NASDAQ 상장 종목 중 배당수익률 기준 상위 100개 종목 수집.
+    target_date: 영업일 기준일 (예: '2026-09-21'). 미지정 시 get_latest_business_date() 사용.
     """
-    print("[NASDAQ] 대표 고배당 및 우량 종목 리스트 선별...")
+    if not target_date:
+        target_date = get_latest_business_date()
+
+    print(f"[NASDAQ] 대표 고배당 및 우량 종목 리스트 선별 (기준일: {target_date})...")
     # 대표적인 NASDAQ 배당 지급 종목 풀 (NASDAQ 100 + 주요 NASDAQ 배당주)
     nasdaq_top_tickers = [
         ('CSCO', 'Cisco Systems', 'Technology'),
@@ -544,8 +575,7 @@ def build_us_market_nasdaq():
 
     df = df.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
     df['순위'] = range(1, len(df) + 1)
-    date_krx = get_latest_krx_date()
-    df['기준일'] = f"{date_krx[:4]}-{date_krx[4:6]}-{date_krx[6:]}"
+    df['기준일'] = target_date
     df = df[[
         '순위', '종목명', '티커', '시장', '업종', '시가총액',
         '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일'
@@ -557,17 +587,20 @@ def main():
     print("=== 한국 및 미국 증시 배당주 TOP 100 마스터 데이터 구축 시작 ===")
     t0 = time.time()
 
+    target_date = get_latest_business_date()
+    print(f"[*] 영업일 기준일: {target_date}")
+
     # 1. KOSPI
-    df_kospi = build_kr_market("KOSPI")
+    df_kospi = build_kr_market("KOSPI", target_date=target_date)
 
     # 2. KOSDAQ
-    df_kosdaq = build_kr_market("KOSDAQ")
+    df_kosdaq = build_kr_market("KOSDAQ", target_date=target_date)
 
     # 3. S&P 500
-    df_sp500 = build_us_market_sp500()
+    df_sp500 = build_us_market_sp500(target_date=target_date)
 
     # 4. NASDAQ
-    df_nasdaq = build_us_market_nasdaq()
+    df_nasdaq = build_us_market_nasdaq(target_date=target_date)
 
     # 통합 마스터 데이터프레임
     df_all = pd.concat([df_kospi, df_kosdaq, df_sp500, df_nasdaq], ignore_index=True)
@@ -580,8 +613,8 @@ def main():
     df_all.to_csv(MASTER_FILE, index=False, encoding='utf-8-sig')
     print(f"[저장 완료] 마스터 파일: {MASTER_FILE}")
 
-    krx_date = get_latest_krx_date()
-    cache_file = os.path.join(CACHE_DIR, f"dividend_summary_{krx_date}.csv")
+    today_clean = target_date.replace('-', '')
+    cache_file = os.path.join(CACHE_DIR, f"dividend_summary_{today_clean}.csv")
     df_all.to_csv(cache_file, index=False, encoding='utf-8-sig')
     print(f"[저장 완료] 당일 캐시 파일: {cache_file}")
 

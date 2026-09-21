@@ -147,27 +147,33 @@ def get_latest_business_date():
     - 평일 16:00 이후에는 '당일'을 최신 영업일로 설정
     - 주말(토, 일)에는 '직전 금요일'을 최신 영업일로 설정
     """
-    # 1. pykrx 연결 가능한 경우 최우선으로 거래소 최근 영업일 조회
-    if HAS_PYKRX and stock:
-        try:
-            krx_day = stock.get_nearest_business_day_in_a_week()
-            if krx_day and len(krx_day) == 8:
-                return f"{krx_day[:4]}-{krx_day[4:6]}-{krx_day[6:]}"
-        except Exception:
-            pass
-
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     now_kst = now_utc + datetime.timedelta(hours=9)
 
     # 평일 16:00 이전이거나 주말이면 어제(또는 직전 평일)부터 탐색
     start_offset = 0 if (now_kst.weekday() < 5 and now_kst.hour >= 16) else 1
 
+    kst_bday = None
     for i in range(start_offset, start_offset + 10):
         d = now_kst - datetime.timedelta(days=i)
         if d.weekday() < 5:
-            return d.strftime('%Y-%m-%d')
+            kst_bday = d.strftime('%Y-%m-%d')
+            break
 
-    return (now_kst - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    if not kst_bday:
+        kst_bday = (now_kst - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+
+    # pykrx 가용 시 실제 거래일 검증 (인자로 kst_clean 전달)
+    if HAS_PYKRX and stock:
+        try:
+            kst_clean = kst_bday.replace('-', '')
+            krx_day = stock.get_nearest_business_day_in_a_week(date=kst_clean)
+            if krx_day and len(krx_day) == 8 and krx_day <= kst_clean:
+                return f"{krx_day[:4]}-{krx_day[4:6]}-{krx_day[6:]}"
+        except Exception:
+            pass
+
+    return kst_bday
 
 
 def update_market_data_for_date(target_date):

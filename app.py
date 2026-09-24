@@ -339,12 +339,14 @@ if 'show_refresh_toast' not in st.session_state:
 with st.sidebar:
     st.markdown("<h2 style='color: #8AB4F8; font-size: 1.3rem; margin-top: 0;'>⚙️ 시장 선택 및 필터</h2>", unsafe_allow_html=True)
 
-    # 1) 시장 선택 (사용자 요청: KOSPI, KOSDAQ, S&P500, NASDAQ)
-    market_options = ["KOSPI", "KOSDAQ", "S&P500", "NASDAQ"]
+    # 1) 시장 선택 (사용자 요청: KOSPI, KOSDAQ, S&P 500, NASDAQ)
+    market_options = ["KOSPI", "KOSDAQ", "S&P 500", "NASDAQ"]
+    if st.session_state.market_selection == "S&P500":
+        st.session_state.market_selection = "S&P 500"
     current_market_idx = market_options.index(st.session_state.market_selection) if st.session_state.market_selection in market_options else 0
     
-    market_choice = st.radio(
-        "시장 선택",
+    market_choice = st.selectbox(
+        "🏛️ 시장 선택",
         options=market_options,
         index=current_market_idx,
         help="조회할 주식 시장을 선택합니다. (한국 2개 시장, 미국 2개 시장)"
@@ -447,7 +449,9 @@ is_korean = active_market in ["KOSPI", "KOSDAQ"]
 currency_symbol = "₩" if is_korean else "$"
 currency_unit = "원" if is_korean else "$"
 
-df_market = df_raw[df_raw["시장"] == active_market].copy().reset_index(drop=True)
+# S&P 500 / S&P500 양방향 호환 필터링
+mkt_targets = [active_market, active_market.replace(" ", "")]
+df_market = df_raw[df_raw["시장"].isin(mkt_targets)].copy().reset_index(drop=True)
 
 # 2) 스마트 필터 적용
 df_filtered = df_market.copy()

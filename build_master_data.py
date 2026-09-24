@@ -62,39 +62,15 @@ QUARTERLY_KR_STOCKS = {
     '051910', '012330', '003670'
 }
 
-def get_latest_business_date() -> str:
-    """
-    가장 최근 거래 완료된 영업일 YYYY-MM-DD 반환.
-    한국 장 마감 시간(15:30) 및 일별 정산(16:00)을 고려:
-    - 평일 16:00 KST 이전에는 아직 당일 종가가 확정되지 않았으므로 '직전 평일'을 기준일로 설정
-    - 평일 16:00 KST 이후에는 '당일'을 최신 영업일로 설정
-    - 주말(토, 일)에는 '직전 금요일'을 최신 영업일로 설정
-    """
-    now_utc = datetime.datetime.now(datetime.timezone.utc)
-    now_kst = now_utc + datetime.timedelta(hours=9)
-    start_offset = 0 if (now_kst.weekday() < 5 and now_kst.hour >= 16) else 1
-
-    for i in range(start_offset, start_offset + 10):
-        d = now_kst - datetime.timedelta(days=i)
-        if d.weekday() < 5:
-            return d.strftime('%Y-%m-%d')
-    return (now_kst - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-
+from data_loader import get_latest_business_date, get_krx_trading_days, is_krx_trading_day
 
 def get_latest_krx_date(target_date: str = None) -> str:
-    """YYYYMMDD 포맷의 가장 최근 마감 영업일 반환 (pykrx 검증 지원)"""
+    """YYYYMMDD 포맷의 가장 최근 마감 영업일 반환 (실제 거래일 자동 보정 지원)"""
     if not target_date:
         target_date = get_latest_business_date()
-    clean_date = target_date.replace('-', '').strip()
-
-    if HAS_PYKRX and stock:
-        try:
-            krx_day = stock.get_nearest_business_day_in_a_week(date=clean_date)
-            if krx_day and len(krx_day) == 8 and krx_day <= clean_date:
-                return krx_day
-        except Exception:
-            pass
-    return clean_date
+    else:
+        target_date = get_latest_business_date(target_date)
+    return target_date.replace('-', '').strip()
 
 
 def evaluate_dividend_safety(payout_ratio, div_yield, eps, market):

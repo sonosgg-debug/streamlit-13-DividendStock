@@ -4,6 +4,9 @@ app.py
 투자 지표 비교 분석, 인터랙티브 시각화 차트 대시보드 웹 애플리케이션.
 """
 
+import socket
+socket.setdefaulttimeout(5.0)
+
 import sys
 # Python 3.12+ 및 Streamlit Cloud 환경에서 pykrx의 pkg_resources 모듈 임포트 에러 방지용 shim
 try:
@@ -32,11 +35,27 @@ from plotly.subplots import make_subplots
 
 import data_loader
 
+STANDARD_CHART_THEME = {
+    'paper_bgcolor': '#1E293B',    # Tailwind Slate-800 (외곽 카드 배경)
+    'plot_bgcolor': '#0F172A',     # Tailwind Slate-900 (내부 딥 블랙 플롯)
+    'text_main': '#F8FAFC',        # 타이틀/헤더 텍스트 (순백색)
+    'text_body': '#E2E8F0',        # 본문 및 축 라벨 (부드러운 화이트)
+    'text_muted': '#CBD5E1',       # 축 눈금 수치 텍스트 (Slate-300)
+    'grid_color': '#334155',       # 그리드 격자선 (Slate-700)
+    'border_color': '#475569',     # 축 기준선 (Slate-600)
+    'legend_bg': 'rgba(30, 41, 59, 0.85)',
+    'legend_border': '#334155',
+    'hover_bg': 'rgba(15, 23, 42, 0.9)',
+    'hover_border': '#334155'
+}
+
+
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
 st.set_page_config(
     page_title="한국 및 미국 증시 배당주 TOP 100",
+    page_icon="💰",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -53,6 +72,11 @@ st.markdown("""
         font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif;
     }
     
+    /* Streamlit 고정 상단 헤더 배경 투명화 */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+    }
+
     /* Main Content Area */
     .main .block-container,
     [data-testid="stMainBlockContainer"] {
@@ -808,8 +832,8 @@ with col_ch1:
             font=dict(color="#f8fafc", size=14)
         ),
         template="plotly_dark",
-        paper_bgcolor="#1e293b",
-        plot_bgcolor="#0f172a",
+        paper_bgcolor=STANDARD_CHART_THEME['paper_bgcolor'],
+        plot_bgcolor=STANDARD_CHART_THEME['plot_bgcolor'],
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=40, r=20, t=50, b=40),
@@ -870,8 +894,8 @@ with col_ch2:
             font=dict(color="#f8fafc", size=14)
         ),
         template="plotly_dark",
-        paper_bgcolor="#1e293b",
-        plot_bgcolor="#0f172a",
+        paper_bgcolor=STANDARD_CHART_THEME['paper_bgcolor'],
+        plot_bgcolor=STANDARD_CHART_THEME['plot_bgcolor'],
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=40, r=40, t=50, b=40)
     )
@@ -941,8 +965,8 @@ with col_ch3:
             font=dict(color="#f8fafc", size=14)
         ),
         template="plotly_dark",
-        paper_bgcolor="#1e293b",
-        plot_bgcolor="#0f172a",
+        paper_bgcolor=STANDARD_CHART_THEME['paper_bgcolor'],
+        plot_bgcolor=STANDARD_CHART_THEME['plot_bgcolor'],
         margin=dict(l=40, r=20, t=50, b=40),
         xaxis=dict(title="배당성향 (%)", gridcolor="#334155"),
         yaxis=dict(title="배당수익률 (%)", gridcolor="#334155"),
@@ -993,8 +1017,8 @@ with col_ch4:
             font=dict(color="#f8fafc", size=14)
         ),
         template="plotly_dark",
-        paper_bgcolor="#1e293b",
-        plot_bgcolor="#0f172a",
+        paper_bgcolor=STANDARD_CHART_THEME['paper_bgcolor'],
+        plot_bgcolor=STANDARD_CHART_THEME['plot_bgcolor'],
         margin=dict(l=40, r=20, t=50, b=40),
         xaxis=dict(title="투자 경과 연수 (년)", tickmode='linear', dtick=1, gridcolor="#334155"),
         yaxis=dict(title=f"예상 평가액 ({currency_unit})", gridcolor="#334155"),

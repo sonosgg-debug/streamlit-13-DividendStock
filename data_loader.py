@@ -4,6 +4,9 @@ data_loader.py
 투자 분석 지표, 시계열 주가 및 배당 이력, 서식 적용 엑셀 다운로드를 제공하는 모듈.
 """
 
+import socket
+socket.setdefaulttimeout(5.0)
+
 import sys
 # Python 3.12+ 및 Streamlit Cloud 환경에서 pykrx의 pkg_resources 모듈 임포트 에러 방지용 shim
 try:
@@ -564,7 +567,7 @@ def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None
                         divs.index = divs.index.tz_localize(None)
                     divs.index = pd.to_datetime(divs.index)
                     divs_annual = divs.groupby(divs.index.year).sum()
-                    current_year = datetime.datetime.now().year
+                    current_year = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).year
                     divs_annual = divs_annual[divs_annual.index >= (current_year - 6)]
                     
                     if len(divs_annual) > 0:
@@ -731,3 +734,36 @@ def create_excel_download(df_export, market_name):
         worksheet.row_dimensions[1].height = 28
 
     return output.getvalue()
+
+def get_latest_expected_trading_day(target_date: str = None) -> str:
+    """
+    가장 최근 거래 완료된 실제 영업일 YYYY-MM-DD 반환.
+    - target_date가 전달된 경우: 해당 날짜 기준 (또는 직전 영업일)
+    - target_date가 없는 경우: KST 기준 15:45 이전이거나 오늘이 주말/새벽이면 직전 마감 거래일 반환
+    """
+    from datetime import datetime, timezone, timedelta
+    now_kst = datetime.now(timezone(timedelta(hours=9)))
+    if target_date:
+        try:
+            clean_date = str(target_date).replace('-', '')
+            dt = datetime.strptime(clean_date, "%Y%m%d").replace(tzinfo=timezone(timedelta(hours=9)))
+        except Exception:
+            dt = now_kst
+    else:
+        dt = now_kst
+
+    # 평일 15:45 이후에만 당일 종가 확정
+    if dt.weekday() < 5 and (dt.hour > 15 or (dt.hour == 15 and dt.minute >= 45)):
+        return dt.strftime("%Y-%m-%d")
+
+    # 장전, 새벽, 주말: 직전 마감 거래일 산출
+    if dt.weekday() == 0:    # 월요일 장전 -> 지난주 금요일 (3일 전)
+        days_back = 3
+    elif dt.weekday() == 6:  # 일요일 -> 지난주 금요일 (2일 전)
+        days_back = 2
+    elif dt.weekday() == 5:  # 토요일 -> 지난주 금요일 (1일 전)
+        days_back = 1
+    else:                    # 화~금 장전/새벽 -> 전일 (1일 전)
+        days_back = 1
+
+    return (dt - timedelta(days=days_back)).strftime("%Y-%m-%d")

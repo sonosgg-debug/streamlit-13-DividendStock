@@ -4,6 +4,9 @@ KOSPI, KOSDAQ, S&P 500, NASDAQ 4개 시장의 배당수익률 기준 TOP 100 마
 dividend_stocks_master.csv 파일로 생성하는 스크립트.
 """
 
+import socket
+socket.setdefaulttimeout(5.0)
+
 import os
 import sys
 import time

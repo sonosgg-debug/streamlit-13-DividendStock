@@ -55,7 +55,6 @@ STANDARD_CHART_THEME = {
 # ==========================================
 st.set_page_config(
     page_title="한국 및 미국 증시 배당주 TOP 100",
-    page_icon="💰",
     layout="wide",
     initial_sidebar_state="expanded"
 )

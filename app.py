@@ -706,7 +706,7 @@ chosen_market = target_stock_row["시장"]
 
 with col_sel2:
     period_label = st.radio(
-        "주가 조회 기간",
+        "조회 기간",
         options=["3개월", "6개월", "1년", "3년"],
         index=2,
         horizontal=True

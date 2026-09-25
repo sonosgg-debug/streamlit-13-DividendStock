@@ -142,11 +142,11 @@ st.markdown("""
 
     /* Section Subheaders */
     .section-header {
-        font-size: 1.25rem;
+        font-size: 1.20rem;
         font-weight: 700;
-        color: #e2e8f0;
-        margin-top: 10px;
-        margin-bottom: 12px;
+        color: #8AB4F8;
+        margin-top: 20px;
+        margin-bottom: 10px;
         display: flex;
         align-items: center;
         gap: 8px;
@@ -1030,7 +1030,7 @@ with col_ch4:
 # 12. 전문가 배당 진단 카드 & 핵심 체크포인트
 # ==========================================
 with st.container(border=True):
-    st.markdown("<div style='font-size: 1.15rem; font-weight: 700; color: #8AB4F8; margin-bottom: 12px;'>💡 전문가 배당 진단 & 투자 체크포인트</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size: 1.20rem; font-weight: 700; color: #8AB4F8; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;'><span>💡</span> 전문가 배당 진단 & 투자 체크포인트</div>", unsafe_allow_html=True)
 
     col_diag1, col_diag2, col_diag3 = st.columns(3)
 

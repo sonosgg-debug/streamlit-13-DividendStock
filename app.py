@@ -342,7 +342,7 @@ with st.sidebar:
         """
         <div style='padding: 2px 0 12px 0;'>
             <div style='font-size: 1.25rem; font-weight: 700; color: #f8fafc; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px;'>
-                <span>⚙️</span> 시장 선택 및 필터
+                <span>⚙️</span> 시장/필터 설정
             </div>
             <div style='font-size: 0.82rem; color: #94a3b8; margin-top: 4px; line-height: 1.4;'>
                 조회 시장과 배당 수익률 및 정렬 기준을 설정합니다.

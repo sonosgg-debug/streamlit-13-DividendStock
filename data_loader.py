@@ -201,8 +201,12 @@ def get_krx_trading_days(count=120):
             r = requests.get(url, headers=headers, timeout=3)
             if r.status_code == 200:
                 items = r.json()
-                if items:
-                    days.extend([item['localTradedAt'].replace('-', '') for item in items])
+                if items and isinstance(items, list):
+                    days.extend([
+                        item['localTradedAt'].replace('-', '')
+                        for item in items
+                        if isinstance(item, dict) and 'localTradedAt' in item
+                    ])
                 else:
                     break
         except Exception:
@@ -252,11 +256,23 @@ def is_any_market_trading_day(date_str) -> bool:
     """한국 또는 미국 중 어느 한 곳이라도 개장한 거래일인지 판별"""
     return is_krx_trading_day(date_str) or is_us_trading_day(date_str)
 
-def get_latest_business_date(target_date: str = None, market: str = 'ANY') -> str:
+def get_latest_business_date(target_date: str = None, market: str = 'ANY', **kwargs) -> str:
     """
     시장별(한국 KRX, 미국 US, 또는 둘 중 하나 ANY) 최신 마감 영업일 YYYY-MM-DD 반환.
+    - target_date: 특정 기준일 문자열 (생략 시 최신 마감 영업일 자동 산출)
     - market: 'ANY' (기본값), 'KRX' ('KOSPI', 'KOSDAQ'), 'US' ('S&P500', 'NASDAQ')
+    - kwargs 및 위치 인자 유연성 지원
     """
+    if 'market' in kwargs:
+        market = kwargs['market']
+    if 'target_date' in kwargs:
+        target_date = kwargs['target_date']
+
+    # 첫 번째 위치 인자로 market 문자열(예: 'KOSPI', 'S&P 500' 등)이 넘어온 경우 자동 스왑
+    if target_date and any(m in str(target_date).upper() for m in ['KOSPI', 'KOSDAQ', 'KRX', 'S&P', 'NASDAQ', 'US', 'ANY', 'KOREA', 'AMERICA']):
+        market = target_date
+        target_date = None
+
     mkt = market.upper() if market else 'ANY'
     if any(k in mkt for k in ['KOSPI', 'KOSDAQ', 'KRX', 'K MARKET', 'KOREA']):
         checker = is_krx_trading_day
@@ -502,8 +518,6 @@ def update_market_data_for_date(target_date: str = None):
             df_all.to_csv(MASTER_FILE, index=False, encoding='utf-8-sig')
             print(f"[data_loader] 데이터 저장 완료: 총 {len(df_all)}개 종목 (한국={target_date_kr}, 미국={target_date_us})")
             return df_all
-
-    return pd.DataFrame()
 
     return pd.DataFrame()
 

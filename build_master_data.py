@@ -65,14 +65,19 @@ QUARTERLY_KR_STOCKS = {
     '051910', '012330', '003670'
 }
 
-from data_loader import get_latest_business_date, get_krx_trading_days, is_krx_trading_day
+from data_loader import (
+    get_latest_business_date,
+    get_krx_trading_days,
+    is_krx_trading_day,
+    is_us_trading_day,
+    is_any_market_trading_day,
+    KRX_HOLIDAYS,
+    US_HOLIDAYS
+)
 
 def get_latest_krx_date(target_date: str = None) -> str:
     """YYYYMMDD 포맷의 가장 최근 마감 영업일 반환 (실제 거래일 자동 보정 지원)"""
-    if not target_date:
-        target_date = get_latest_business_date()
-    else:
-        target_date = get_latest_business_date(target_date)
+    target_date = get_latest_business_date(target_date, market='KRX')
     return target_date.replace('-', '').strip()
 
 
@@ -99,10 +104,10 @@ def evaluate_dividend_safety(payout_ratio, div_yield, eps, market):
 def build_kr_market(market_name="KOSPI", target_date: str = None):
     """
     KOSPI 또는 KOSDAQ 배당 상위 100개 종목 수집.
-    target_date: 영업일 기준일 (예: '2026-09-21'). 미지정 시 get_latest_business_date() 사용.
+    target_date: 영업일 기준일 (예: '2026-09-21'). 미지정 시 get_latest_business_date(market='KRX') 사용.
     """
     if not target_date:
-        target_date = get_latest_business_date()
+        target_date = get_latest_business_date(market='KRX')
 
     print(f"[{market_name}] 데이터 수집 시작 (기준일: {target_date})...")
     date = get_latest_krx_date(target_date)
@@ -217,10 +222,10 @@ def build_kr_market(market_name="KOSPI", target_date: str = None):
 def build_us_market_sp500(target_date: str = None):
     """
     S&P 500 종목 중 배당수익률 기준 상위 100개 종목 수집.
-    target_date: 영업일 기준일 (예: '2026-09-21'). 미지정 시 get_latest_business_date() 사용.
+    target_date: 영업일 기준일 (예: '2026-09-21'). 미지정 시 get_latest_business_date(market='US') 사용.
     """
     if not target_date:
-        target_date = get_latest_business_date()
+        target_date = get_latest_business_date(market='US')
 
     print(f"[S&P500] 종목 리스트 수집 중 (기준일: {target_date})...")
     symbols_data = []
@@ -340,10 +345,10 @@ def build_us_market_sp500(target_date: str = None):
 def build_us_market_nasdaq(target_date: str = None):
     """
     NASDAQ 상장 종목 중 배당수익률 기준 상위 100개 종목 수집.
-    target_date: 영업일 기준일 (예: '2026-09-21'). 미지정 시 get_latest_business_date() 사용.
+    target_date: 영업일 기준일 (예: '2026-09-21'). 미지정 시 get_latest_business_date(market='US') 사용.
     """
     if not target_date:
-        target_date = get_latest_business_date()
+        target_date = get_latest_business_date(market='US')
 
     print(f"[NASDAQ] 대표 고배당 및 우량 종목 리스트 선별 (기준일: {target_date})...")
     # 대표적인 NASDAQ 배당 지급 종목 풀 (NASDAQ 100 + 주요 NASDAQ 배당주)
@@ -566,20 +571,22 @@ def main():
     print("=== 한국 및 미국 증시 배당주 TOP 100 마스터 데이터 구축 시작 ===")
     t0 = time.time()
 
-    target_date = get_latest_business_date()
-    print(f"[*] 영업일 기준일: {target_date}")
+    target_date_kr = get_latest_business_date(market='KRX')
+    target_date_us = get_latest_business_date(market='US')
+    target_date = get_latest_business_date(market='ANY')
+    print(f"[*] 영업일 기준일: 전체={target_date} (한국={target_date_kr}, 미국={target_date_us})")
 
     # 1. KOSPI
-    df_kospi = build_kr_market("KOSPI", target_date=target_date)
+    df_kospi = build_kr_market("KOSPI", target_date=target_date_kr)
 
     # 2. KOSDAQ
-    df_kosdaq = build_kr_market("KOSDAQ", target_date=target_date)
+    df_kosdaq = build_kr_market("KOSDAQ", target_date=target_date_kr)
 
     # 3. S&P 500
-    df_sp500 = build_us_market_sp500(target_date=target_date)
+    df_sp500 = build_us_market_sp500(target_date=target_date_us)
 
     # 4. NASDAQ
-    df_nasdaq = build_us_market_nasdaq(target_date=target_date)
+    df_nasdaq = build_us_market_nasdaq(target_date=target_date_us)
 
     # 통합 마스터 데이터프레임
     df_all = pd.concat([df_kospi, df_kosdaq, df_sp500, df_nasdaq], ignore_index=True)

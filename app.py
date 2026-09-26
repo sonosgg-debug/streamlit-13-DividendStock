@@ -540,13 +540,20 @@ st.markdown(
 )
 
 # 메타 정보 표시
-latest_biz_date = data_loader.get_latest_business_date()
-is_outdated = (target_date < latest_biz_date)
+latest_biz_date = data_loader.get_latest_business_date(market=active_market)
+actual_mkt_date = df_filtered['기준일'].iloc[0] if ('기준일' in df_filtered.columns and not df_filtered.empty and pd.notna(df_filtered['기준일'].iloc[0])) else latest_biz_date
+
+now_kst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+today_kst_str = now_kst.strftime('%Y-%m-%d')
+is_mkt_open_today = data_loader.is_krx_trading_day(today_kst_str) if is_korean else data_loader.is_us_trading_day(today_kst_str)
+mkt_status_tag = "" if is_mkt_open_today else f" <span style='color: #fbbf24; font-size: 0.8rem;'>({'국내 증시' if is_korean else '미국 증시'} 오늘 휴장)</span>"
+
+is_outdated = (str(actual_mkt_date) < str(latest_biz_date))
 outdated_badge = f" &nbsp;|&nbsp; <span style='color: #fbbf24; font-weight: 600;'>⚠️ 이전 마스터 기준 (🔄 Update 권장)</span>" if is_outdated else ""
 
 st.markdown(
     f"<div style='text-align: center; font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px;'>"
-    f"기준일: <span style='color: #38bdf8; font-weight: 600;'>{target_date}</span> (종가 기준) &nbsp;|&nbsp; "
+    f"기준일: <span style='color: #38bdf8; font-weight: 600;'>{actual_mkt_date}</span>{mkt_status_tag} (종가 기준) &nbsp;|&nbsp; "
     f"선택 시장: <span style='color: #f8fafc; font-weight: 700;'>{active_market}</span> &nbsp;|&nbsp; "
     f"표시 통화: <span style='color: #34d399; font-weight: 600;'>{'원화(KRW, ₩)' if is_korean else '달러(USD, $)'}</span> &nbsp;|&nbsp; "
     f"데이터 출처: <span style='color: #cbd5e1;'>{'KRX & 네이버 증권' if is_korean else 'S&P Dow Jones / Yahoo Finance'}</span>"

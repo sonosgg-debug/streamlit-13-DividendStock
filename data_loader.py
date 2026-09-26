@@ -164,6 +164,22 @@ KRX_HOLIDAYS = {
     '20271011', '20271225', '20271231'
 }
 
+# 미국 증시(NYSE, NASDAQ) 정규 휴장일 (2024~2027)
+US_HOLIDAYS = {
+    # 2024
+    '20240101', '20240115', '20240219', '20240329', '20240527', '20240619', '20240704',
+    '20240902', '20241128', '20241225',
+    # 2025
+    '20250101', '20250120', '20250217', '20250418', '20250526', '20250619', '20250704',
+    '20250901', '20251127', '20251225',
+    # 2026
+    '20260101', '20260119', '20260216', '20260403', '20260525', '20260619', '20260703',
+    '20260907', '20261126', '20261225',
+    # 2027
+    '20270101', '20270118', '20270215', '20270326', '20270531', '20270618', '20270705',
+    '20270906', '20271125', '20271224'
+}
+
 _CACHED_TRADING_DAYS = None
 
 def get_krx_trading_days(count=120):
@@ -211,39 +227,51 @@ def get_krx_trading_days(count=120):
     _CACHED_TRADING_DAYS = sorted(fallback_days)
     return _CACHED_TRADING_DAYS
 
-def is_krx_trading_day(date_str):
-    """주어진 날짜(YYYYMMDD 또는 YYYY-MM-DD)가 실제 거래일인지 판별합니다."""
-    clean_date = str(date_str).replace('-', '')
+def is_krx_trading_day(date_str) -> bool:
+    """주어진 날짜(YYYYMMDD 또는 YYYY-MM-DD)가 한국 증시 실제 거래일인지 판별"""
+    clean_date = str(date_str).replace('-', '').strip()
     trading_days = get_krx_trading_days(120)
     if clean_date in trading_days:
         return True
     try:
         dt = datetime.datetime.strptime(clean_date, "%Y%m%d")
         return (dt.weekday() < 5) and (clean_date not in KRX_HOLIDAYS)
-    except:
+    except Exception:
         return False
 
-def get_latest_business_date(target_date: str = None) -> str:
+def is_us_trading_day(date_str) -> bool:
+    """주어진 날짜(YYYYMMDD 또는 YYYY-MM-DD)가 미국 증시 실제 거래일인지 판별"""
+    clean_date = str(date_str).replace('-', '').strip()
+    try:
+        dt = datetime.datetime.strptime(clean_date, "%Y%m%d")
+        return (dt.weekday() < 5) and (clean_date not in US_HOLIDAYS)
+    except Exception:
+        return False
+
+def is_any_market_trading_day(date_str) -> bool:
+    """한국 또는 미국 중 어느 한 곳이라도 개장한 거래일인지 판별"""
+    return is_krx_trading_day(date_str) or is_us_trading_day(date_str)
+
+def get_latest_business_date(target_date: str = None, market: str = 'ANY') -> str:
     """
-    가장 최근 거래 완료된 실제 영업일 YYYY-MM-DD 반환.
-    - target_date가 전달된 경우: 해당 날짜가 거래일이면 그대로, 휴장일이면 직전 실제 거래일로 자동 보정
-    - target_date가 없는 경우: KST 기준 16:00 이전이거나 오늘이 휴장일이면 최신 마감 거래일 반환
+    시장별(한국 KRX, 미국 US, 또는 둘 중 하나 ANY) 최신 마감 영업일 YYYY-MM-DD 반환.
+    - market: 'ANY' (기본값), 'KRX' ('KOSPI', 'KOSDAQ'), 'US' ('S&P500', 'NASDAQ')
     """
-    trading_days = get_krx_trading_days(120)
-    
+    mkt = market.upper() if market else 'ANY'
+    if any(k in mkt for k in ['KOSPI', 'KOSDAQ', 'KRX', 'K MARKET', 'KOREA']):
+        checker = is_krx_trading_day
+    elif any(u in mkt for u in ['US', 'NASDAQ', 'S&P', 'AMERICA']):
+        checker = is_us_trading_day
+    else:
+        checker = is_any_market_trading_day
+
     if target_date:
-        clean_date = str(target_date).replace('-', '')
-        if clean_date in trading_days:
-            return f"{clean_date[:4]}-{clean_date[4:6]}-{clean_date[6:]}"
-        earlier = [d for d in trading_days if d <= clean_date]
-        if earlier:
-            d_res = earlier[-1]
-            return f"{d_res[:4]}-{d_res[4:6]}-{d_res[6:]}"
+        clean_date = str(target_date).replace('-', '').strip()
         try:
             dt = datetime.datetime.strptime(clean_date, "%Y%m%d")
             while True:
                 d_str = dt.strftime("%Y%m%d")
-                if dt.weekday() < 5 and d_str not in KRX_HOLIDAYS:
+                if checker(d_str):
                     return f"{d_str[:4]}-{d_str[4:6]}-{d_str[6:]}"
                 dt -= datetime.timedelta(days=1)
         except Exception:
@@ -251,37 +279,57 @@ def get_latest_business_date(target_date: str = None) -> str:
 
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     now_kst = now_utc + datetime.timedelta(hours=9)
-    today_str = now_kst.strftime('%Y%m%d')
 
-    if now_kst.hour >= 16 and today_str in trading_days:
-        return f"{today_str[:4]}-{today_str[4:6]}-{today_str[6:]}"
+    if any(k in mkt for k in ['KOSPI', 'KOSDAQ', 'KRX', 'K MARKET', 'KOREA']):
+        # 한국: 15:45 이후 오늘 거래 반영
+        if now_kst.hour > 15 or (now_kst.hour == 15 and now_kst.minute >= 45):
+            candidate = now_kst
+        else:
+            candidate = now_kst - datetime.timedelta(days=1)
+    elif any(u in mkt for u in ['US', 'NASDAQ', 'S&P', 'AMERICA']):
+        # 미국: EDT 기준 16:00 이후 오늘 마감 확정
+        now_edt = now_utc - datetime.timedelta(hours=4)
+        if now_edt.hour >= 16:
+            candidate = now_edt
+        else:
+            candidate = now_edt - datetime.timedelta(days=1)
+    else:
+        # ANY: 한국이 16시 이후이거나 전일
+        candidate = now_kst if (now_kst.hour >= 16) else (now_kst - datetime.timedelta(days=1))
 
-    prior_days = [d for d in trading_days if d < today_str]
-    if prior_days:
-        d_res = prior_days[-1]
-        return f"{d_res[:4]}-{d_res[4:6]}-{d_res[6:]}"
+    for _ in range(30):
+        d_str = candidate.strftime('%Y%m%d')
+        if checker(d_str):
+            return f"{d_str[:4]}-{d_str[4:6]}-{d_str[6:]}"
+        candidate -= datetime.timedelta(days=1)
 
-    fallback_str = trading_days[-1] if trading_days else (now_kst - datetime.timedelta(days=1)).strftime('%Y%m%d')
-    return f"{fallback_str[:4]}-{fallback_str[4:6]}-{fallback_str[6:]}"
+    return now_kst.strftime('%Y-%m-%d')
 
 
-def update_market_data_for_date(target_date):
+def update_market_data_for_date(target_date: str = None):
     """
     지정된 최신 기준일(target_date: YYYY-MM-DD)에 맞추어 4개 시장(KOSPI, KOSDAQ, S&P 500, NASDAQ)
     TOP 100 배당주 데이터를 수집 및 갱신하고 캐시와 마스터 파일에 동시 저장합니다.
+    한국과 미국 시장의 휴장일이 다를 경우 각 시장의 최신 영업일을 독립적으로 산출합니다.
     """
-    clean_date = target_date.replace('-', '').strip()
-    cache_path = os.path.join(CACHE_DIR, f"dividend_summary_{clean_date}.csv")
-    print(f"[data_loader] {target_date} ({clean_date}) 기준 최신 시장 데이터 업데이트 시작...")
+    target_date_kr = get_latest_business_date(target_date, market='KRX')
+    target_date_us = get_latest_business_date(target_date, market='US')
+    target_date_any = get_latest_business_date(target_date, market='ANY')
+
+    clean_date_kr = target_date_kr.replace('-', '').strip()
+    clean_date_us = target_date_us.replace('-', '').strip()
+    clean_date_any = target_date_any.replace('-', '').strip()
+    cache_path = os.path.join(CACHE_DIR, f"dividend_summary_{clean_date_any}.csv")
+    print(f"[data_loader] 최신 시장 데이터 업데이트 시작 (전체: {target_date_any}, 한국: {target_date_kr}, 미국: {target_date_us})...")
     df_parts = []
 
     # 1. 한국 시장 (KOSPI, KOSDAQ) - pykrx 펀더멘털 수집 후 포털 확정 종가 및 시가총액 2차 동기화
     if HAS_PYKRX and stock:
         for market_name in ['KOSPI', 'KOSDAQ']:
             try:
-                fund = stock.get_market_fundamental_by_ticker(clean_date, market=market_name)
-                cap = stock.get_market_cap_by_ticker(clean_date, market=market_name)
-                sec = stock.get_market_sector_classifications(clean_date, market=market_name)
+                fund = stock.get_market_fundamental_by_ticker(clean_date_kr, market=market_name)
+                cap = stock.get_market_cap_by_ticker(clean_date_kr, market=market_name)
+                sec = stock.get_market_sector_classifications(clean_date_kr, market=market_name)
 
                 df_kr = pd.DataFrame(index=fund.index)
                 df_kr['티커'] = fund.index
@@ -369,12 +417,12 @@ def update_market_data_for_date(target_date):
                     evaluate_dividend_safety(p, y, e, market_name)
                     for p, y, e in zip(df_kr_final['배당성향'], df_kr_final['배당수익률'], df_kr_final['EPS'])
                 ]
-                df_kr_final['기준일'] = target_date
+                df_kr_final['기준일'] = target_date_kr
 
                 cols = ['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일']
                 df_kr_final = df_kr_final[cols]
                 df_parts.append(df_kr_final)
-                print(f"[{market_name}] {len(df_kr_final)}개 종목 최신화 및 포털 종가/시가총액 동기화 완료 (동기화: {len(price_map_kr)}/{len(cand_tickers)}, 기준일: {target_date})")
+                print(f"[{market_name}] {len(df_kr_final)}개 종목 최신화 및 포털 종가/시가총액 동기화 완료 (동기화: {len(price_map_kr)}/{len(cand_tickers)}, 기준일: {target_date_kr})")
             except Exception as e_kr:
                 print(f"[{market_name}] pykrx 수집 예외: {e_kr}")
 
@@ -398,11 +446,11 @@ def update_market_data_for_date(target_date):
             def fetch_latest_us_price(sym):
                 if HAS_FDR and fdr:
                     try:
-                        s_dt = (pd.to_datetime(target_date) - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
-                        e_dt = (pd.to_datetime(target_date) + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                        s_dt = (pd.to_datetime(target_date_us) - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+                        e_dt = (pd.to_datetime(target_date_us) + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
                         df_p = fdr.DataReader(sym, s_dt, e_dt)
                         if not df_p.empty and 'Close' in df_p.columns:
-                            c_series = df_p.loc[df_p.index <= pd.to_datetime(target_date), 'Close'].dropna()
+                            c_series = df_p.loc[df_p.index <= pd.to_datetime(target_date_us), 'Close'].dropna()
                             if not c_series.empty:
                                 return sym, float(c_series.iloc[-1])
                     except Exception:
@@ -438,11 +486,11 @@ def update_market_data_for_date(target_date):
             # 배당수익률 기준 재정렬 후 100개
             df_us_sub = df_us_sub.sort_values(by='배당수익률', ascending=False).head(100).copy().reset_index(drop=True)
             df_us_sub['순위'] = range(1, len(df_us_sub) + 1)
-            df_us_sub['기준일'] = target_date
+            df_us_sub['기준일'] = target_date_us
             cols = ['순위', '종목명', '티커', '시장', '업종', '시가총액', '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일']
             df_us_sub = df_us_sub[cols]
             df_parts.append(df_us_sub)
-            print(f"[{us_market}] {len(df_us_sub)}개 종목 갱신 완료 (가격 반영: {len(price_map)}/{len(tickers)})")
+            print(f"[{us_market}] {len(df_us_sub)}개 종목 갱신 완료 (가격 반영: {len(price_map)}/{len(tickers)}, 기준일: {target_date_us})")
 
     # 3. 통합 DataFrame 병합 및 저장
     if df_parts:
@@ -452,8 +500,10 @@ def update_market_data_for_date(target_date):
             df_all.to_csv(cache_path, index=False, encoding='utf-8-sig')
             # 마스터 파일 동시 저장
             df_all.to_csv(MASTER_FILE, index=False, encoding='utf-8-sig')
-            print(f"[data_loader] {target_date} 데이터 저장 완료: 총 {len(df_all)}개 종목")
+            print(f"[data_loader] 데이터 저장 완료: 총 {len(df_all)}개 종목 (한국={target_date_kr}, 미국={target_date_us})")
             return df_all
+
+    return pd.DataFrame()
 
     return pd.DataFrame()
 
@@ -465,7 +515,7 @@ def load_market_data(force_refresh=False):
     - 캐시 파일이 없거나 force_refresh=True일 경우 최신 기준일 데이터로 수집/갱신.
     반환값: (df_all, target_date_str)
     """
-    date_display = get_latest_business_date()
+    date_display = get_latest_business_date(market='ANY')
     today_clean = date_display.replace('-', '')
     cache_path = os.path.join(CACHE_DIR, f"dividend_summary_{today_clean}.csv")
 
@@ -516,7 +566,9 @@ def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None
     df_div_annual = pd.DataFrame()
 
     try:
-        end_date_str = get_latest_business_date()
+        is_us = any(u in str(market).upper() for u in ['S&P', 'NASDAQ', 'US'])
+        mkt_key = 'US' if is_us else 'KRX'
+        end_date_str = get_latest_business_date(market=mkt_key)
         if latest_date:
             clean_date = str(latest_date).replace('-', '').strip()
             if len(clean_date) == 8:
@@ -526,6 +578,7 @@ def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None
 
         start_dt = datetime.datetime.strptime(end_date_str, "%Y-%m-%d") - datetime.timedelta(days=int(months * 30.5))
         start_date_str = start_dt.strftime("%Y-%m-%d")
+        end_date_yf = (pd.to_datetime(end_date_str) + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
 
         # 1. 한국 주식인 경우 pykrx OHLCV 우선 시도
         if market in ['KOSPI', 'KOSDAQ'] and HAS_PYKRX and stock:
@@ -554,8 +607,10 @@ def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None
 
                 # 주가 데이터가 아직 없으면 yfinance에서 로드
                 if df_price.empty:
-                    period_str = f"{months}mo" if months <= 36 else "5y"
-                    hist = t.history(period=period_str)
+                    hist = t.history(start=start_date_str, end=end_date_yf)
+                    if hist.empty:
+                        period_str = f"{months}mo" if months <= 36 else "5y"
+                        hist = t.history(period=period_str)
                     if not hist.empty and 'Close' in hist.columns:
                         df_price = pd.DataFrame(index=hist.index)
                         df_price['종가'] = hist['Close'].values

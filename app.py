@@ -55,8 +55,11 @@ STANDARD_CHART_THEME = {
 # ==========================================
 # 1. 페이지 설정
 # ==========================================
+FAVICON_PATH = os.path.join(os.path.dirname(__file__), "favicon.png")
+
 st.set_page_config(
     page_title="한국 및 미국 증시 배당주 TOP 100",
+    page_icon=FAVICON_PATH if os.path.exists(FAVICON_PATH) else None,
     layout="wide",
     initial_sidebar_state="expanded"
 )

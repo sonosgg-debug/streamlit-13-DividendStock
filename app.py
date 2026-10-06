@@ -4,9 +4,6 @@ app.py
 투자 지표 비교 분석, 인터랙티브 시각화 차트 대시보드 웹 애플리케이션.
 """
 
-import socket
-socket.setdefaulttimeout(5.0)
-
 import sys
 # Python 3.12+ 및 Streamlit Cloud 환경에서 pykrx의 pkg_resources 모듈 임포트 에러 방지용 shim
 try:
@@ -50,7 +47,6 @@ STANDARD_CHART_THEME = {
     'hover_bg': 'rgba(15, 23, 42, 0.9)',
     'hover_border': '#334155'
 }
-
 
 # ==========================================
 # 1. 페이지 설정
@@ -325,14 +321,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 # ==========================================
 # 3. 데이터 로딩 캐시 함수
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_cached_market_data(target_date_key: str, force_refresh: bool = False):
     return data_loader.load_market_data(force_refresh=force_refresh)
-
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_cached_stock_history_and_dividends(ticker, market, months=12, latest_date=None, latest_price=None, force_refresh=False, *args, **kwargs):
@@ -348,7 +342,6 @@ def get_cached_stock_history_and_dividends(ticker, market, months=12, latest_dat
         print(f"get_cached_stock_history_and_dividends 캐시 로드 예외: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
-
 # ==========================================
 # 4. 세션 상태 초기화
 # ==========================================
@@ -360,7 +353,6 @@ if 'force_reload' not in st.session_state:
     st.session_state.force_reload = False
 if 'show_refresh_toast' not in st.session_state:
     st.session_state.show_refresh_toast = False
-
 
 # ==========================================
 # 5. 왼쪽 사이드 패널 (사이드바)
@@ -466,7 +458,6 @@ with st.sidebar:
         st.session_state.selected_stock_key = None
         st.rerun()
 
-
 # ==========================================
 # 6. 데이터 로드 및 시장별 필터링
 # ==========================================
@@ -533,7 +524,6 @@ else:
 # 순위는 어떤 항목으로 정렬하더라도 항상 1부터 100까지 고정
 df_filtered["순위"] = list(range(1, len(df_filtered) + 1))
 
-
 # ==========================================
 # 7. 메인 타이틀 영역
 # ==========================================
@@ -579,7 +569,6 @@ st.markdown(
 # [가로 선 1]: 타이틀 영역과 KPI 영역 사이
 st.markdown("<hr style='border: 0; height: 1px; background-color: #334155; margin: 8px 0 18px 0;'>", unsafe_allow_html=True)
 
-
 # ==========================================
 # 8. 핵심 요약 KPI 지표 카드 (4열)
 # ==========================================
@@ -611,7 +600,6 @@ with col_kpi3:
 with col_kpi4:
     with st.container(border=True):
         st.metric("🏆 최고 배당수익률 종목", top_div_info, help="현재 필터 조건 내 1위 배당 종목")
-
 
 # ==========================================
 # 9. 메인 영역: 조회 결과 데이터 테이블
@@ -709,12 +697,10 @@ if selection and selection.get("rows"):
         selected_from_table = df_filtered.iloc[sel_idx]["종목명"]
         st.session_state.selected_stock_key = selected_from_table
 
-
 # ==========================================
 # 10. [가로 선 2]: 데이터 영역과 상세 영역 사이
 # ==========================================
 st.markdown("<hr style='border: 0; height: 1px; background-color: #334155; margin: 25px 0 22px 0;'>", unsafe_allow_html=True)
-
 
 # ==========================================
 # 11. 메인 영역: 종목별 상세 비교 및 시각화 차트
@@ -787,7 +773,6 @@ with st.container(border=True):
         st.metric("배당성향", payout_str)
     with col_m6:
         st.metric("배당주기 / 안전성", f"{target_stock_row['배당주기']}", help=f"안전성 등급: {target_stock_row['배당안전성']}")
-
 
 # 시계열 주가 및 배당 이력 로드
 with st.spinner(f"{chosen_stock_name} 시계열 주가 및 배당 이력을 불러오는 중..."):
@@ -923,7 +908,6 @@ with col_ch2:
     fig2.update_yaxes(title_text="성장률 (%)", secondary_y=True, gridcolor="#334155")
     st.plotly_chart(fig2, use_container_width=True)
 
-
 # 하단 2단 레이아웃 (4분면 매트릭스 & DRIP 복리 시뮬레이터)
 col_ch3, col_ch4 = st.columns([6, 6])
 
@@ -1045,7 +1029,6 @@ with col_ch4:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig4, use_container_width=True)
-
 
 # ==========================================
 # 12. 전문가 배당 진단 카드 & 핵심 체크포인트

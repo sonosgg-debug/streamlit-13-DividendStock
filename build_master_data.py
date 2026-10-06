@@ -4,9 +4,6 @@ KOSPI, KOSDAQ, S&P 500, NASDAQ 4개 시장의 배당수익률 기준 TOP 100 마
 dividend_stocks_master.csv 파일로 생성하는 스크립트.
 """
 
-import socket
-socket.setdefaulttimeout(5.0)
-
 import os
 import sys
 import time
@@ -80,7 +77,6 @@ def get_latest_krx_date(target_date: str = None) -> str:
     target_date = get_latest_business_date(target_date, market='KRX')
     return target_date.replace('-', '').strip()
 
-
 def evaluate_dividend_safety(payout_ratio, div_yield, eps, market):
     """
     배당 안전성 평가 로직 (정상, 보통, 주의)
@@ -99,7 +95,6 @@ def evaluate_dividend_safety(payout_ratio, div_yield, eps, market):
     elif payout_ratio < 10:
         return "🟢 안전 (저성향)"
     return "🟡 보통"
-
 
 def build_kr_market(market_name="KOSPI", target_date: str = None):
     """
@@ -217,7 +212,6 @@ def build_kr_market(market_name="KOSPI", target_date: str = None):
     ]]
     print(f"[{market_name}] 수집 완료: {len(df_final)}개 종목 (포털 종가 동기화: {len(price_map_kr)}/{len(cand_tickers)})")
     return df_final
-
 
 def build_us_market_sp500(target_date: str = None):
     """
@@ -340,7 +334,6 @@ def build_us_market_sp500(target_date: str = None):
         '현재가', '배당금', '배당수익률', '배당성향', '배당주기', '배당안전성', '기준일'
     ]]
     return df
-
 
 def build_us_market_nasdaq(target_date: str = None):
     """
@@ -566,7 +559,6 @@ def build_us_market_nasdaq(target_date: str = None):
     ]]
     return df
 
-
 def main():
     print("=== 한국 및 미국 증시 배당주 TOP 100 마스터 데이터 구축 시작 ===")
     t0 = time.time()
@@ -605,7 +597,6 @@ def main():
     print(f"[저장 완료] 당일 캐시 파일: {cache_file}")
 
     print(f"전체 소요 시간: {time.time() - t0:.1f}초")
-
 
 if __name__ == '__main__':
     main()

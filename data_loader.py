@@ -4,9 +4,6 @@ data_loader.py
 투자 분석 지표, 시계열 주가 및 배당 이력, 서식 적용 엑셀 다운로드를 제공하는 모듈.
 """
 
-import socket
-socket.setdefaulttimeout(5.0)
-
 import sys
 # Python 3.12+ 및 Streamlit Cloud 환경에서 pykrx의 pkg_resources 모듈 임포트 에러 방지용 shim
 try:
@@ -111,7 +108,6 @@ QUARTERLY_KR_STOCKS = {
     '051910', '012330', '003670'
 }
 
-
 def evaluate_dividend_safety(payout_ratio, div_yield, eps=1.0, market=""):
     """
     배당 안전성 평가 로직 (안전, 보통, 주의)
@@ -140,7 +136,6 @@ def evaluate_dividend_safety(payout_ratio, div_yield, eps=1.0, market=""):
     elif payout_ratio < 10:
         return "🟢 안전 (저성향)"
     return "🟡 보통"
-
 
 import requests
 
@@ -320,7 +315,6 @@ def get_latest_business_date(target_date: str = None, market: str = 'ANY', **kwa
         candidate -= datetime.timedelta(days=1)
 
     return now_kst.strftime('%Y-%m-%d')
-
 
 def update_market_data_for_date(target_date: str = None):
     """
@@ -521,7 +515,6 @@ def update_market_data_for_date(target_date: str = None):
 
     return pd.DataFrame()
 
-
 def load_market_data(force_refresh=False):
     """
     한국 및 미국 4개 시장(KOSPI, KOSDAQ, S&P500, NASDAQ)의 배당주 데이터를 로드합니다.
@@ -563,7 +556,6 @@ def load_market_data(force_refresh=False):
             print(f"마스터 파일 로드 실패: {e}")
 
     return pd.DataFrame(), date_display
-
 
 def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None, latest_price=None, *args, **kwargs):
     """
@@ -718,7 +710,6 @@ def load_stock_history_and_dividends(ticker, market, months=12, latest_date=None
     except Exception as e:
         print(f"load_stock_history_and_dividends 최상위 예외 방어: {e}")
         return pd.DataFrame(), pd.DataFrame()
-
 
 def create_excel_download(df_export, market_name):
     """

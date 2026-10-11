@@ -25,14 +25,32 @@ import io
 import os
 import datetime
 import streamlit as st
+
+# ==========================================
+# 1. 페이지 설정
+# [가이드 05] Streamlit 명령 최우선 실행 보장 (StreamlitAPIException 및 무한 로딩 방어)
+# ==========================================
+FAVICON_PATH = os.path.join(os.path.dirname(__file__), "favicon.png")
+
+st.set_page_config(
+    page_title="한국 및 미국 증시 배당주 TOP 100",
+    page_icon=FAVICON_PATH if os.path.exists(FAVICON_PATH) else None,
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 import importlib
-import data_loader
-importlib.reload(data_loader)
+try:
+    import data_loader
+    importlib.reload(data_loader)
+except Exception as e:
+    st.error(f"모듈 로드 중 오류가 발생했습니다: {e}")
+    st.stop()
 
 STANDARD_CHART_THEME = {
     'paper_bgcolor': '#1E293B',    # Tailwind Slate-800 (외곽 카드 배경)
@@ -47,18 +65,6 @@ STANDARD_CHART_THEME = {
     'hover_bg': 'rgba(15, 23, 42, 0.9)',
     'hover_border': '#334155'
 }
-
-# ==========================================
-# 1. 페이지 설정
-# ==========================================
-FAVICON_PATH = os.path.join(os.path.dirname(__file__), "favicon.png")
-
-st.set_page_config(
-    page_title="한국 및 미국 증시 배당주 TOP 100",
-    page_icon=FAVICON_PATH if os.path.exists(FAVICON_PATH) else None,
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # ==========================================
 # 2. 커스텀 CSS (38 PreferredStock 딥 다크 테마 일관 적용)
